@@ -1,0 +1,23 @@
+NAME=ircserv
+FILES=main.cpp
+FILES_O=$(FILES:.cpp=.o)
+CPPFLAGS=-Wall -Werror -Wextra -fsanitize=address -std=c++98 -g
+CXX=c++
+
+all: $(NAME)
+
+$(NAME): $(FILES_O)
+	$(CXX)  $(CPPFLAGS) $(FILES_O) -o $(NAME)
+
+clean:
+	rm -rf $(FILES_O)
+
+fclean: clean
+	rm -rf $(NAME)
+
+re: fclean all
+
+bonus: all
+
+.PHONY: all clean fclean re bonus
+
