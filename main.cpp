@@ -146,13 +146,13 @@ public:
 
 			buffer[length] = 0;
 			users[pfd.fd].append_data(std::string(buffer));
-			// send(pfd.fd, buffer, length, 0);
+			send(pfd.fd, buffer, length, 0);
 		}
 	}
 	
 	void welcome(pollfd &pfd)
 	{
-		std::string welcome = ":slime.gay 001 " + users[pfd.fd].get_nick() + ": Welcome!";
+		std::string welcome = ":localhost 001 " + users[pfd.fd].get_nick() + " :Welcome!";
 		std::cout << welcome << std::endl;
 		send(pfd.fd, welcome.c_str(), welcome.length(), 0);
 	}
