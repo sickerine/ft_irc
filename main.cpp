@@ -15,6 +15,61 @@ void insist(T ret, U err, const std::string &msg)
 		throw std::runtime_error(msg);
 }
 
+bool starts_with(const std::string &str, const std::string &prefix)
+{
+	return str.compare(0, prefix.size(), prefix) == 0;
+}
+
+std::vector<std::string> split(const std::string &str)
+{
+	std::vector<std::string> splits;
+	std::istringstream iss(str);
+	std::string line;
+
+	while (std::getline(iss, line, ' ')) {
+		if (line.empty())
+			splits.back() += ' ';
+		else
+			splits.push_back(line);
+	}
+	splits.back().erase(splits.back().length() - 1);
+	return splits;
+}
+
+// fasfjasjfadjksABCABCABCdsdjsdsj
+
+class User
+{
+	private:
+		std::string nickname;
+		std::string username;
+		std::string datastream;
+		bool authenticated;
+	public:
+		User() : authenticated(false) 
+		{
+			std::cout << "new user constructed" << std::endl;
+		}
+
+		~User()
+		{
+
+		}
+
+		void set_nick(const std::string &nick) { nickname = nick; }
+		const std::string &get_nick() { return nickname; }
+
+		void set_user(const std::string &user) { username = user; }
+		const std::string &get_user() { return username; }
+
+		void set_auth() { authenticated = true; }
+		bool get_auth() { return authenticated; }
+
+		void append_data(const std::string &data) { datastream += data; }
+		std::string &get_data() { return datastream; }
+
+};
+
 class Server
 {
 private:
@@ -22,7 +77,7 @@ private:
 	addrinfo *info;
 	int server_fd;
 	std::vector<pollfd> fds;
-	std::map<int, std::stringstream> data_streams;
+	std::map<int, User> users;
 	bool running;
 
 public:
@@ -90,24 +145,55 @@ public:
 				break;
 
 			buffer[length] = 0;
-			data_streams[pfd.fd] << std::string(buffer);
-			send(pfd.fd, buffer, length, 0);
+			users[pfd.fd].append_data(std::string(buffer));
+			// send(pfd.fd, buffer, length, 0);
+		}
+	}
+	
+	void welcome(pollfd &pfd)
+	{
+		std::string welcome = ":slime.gay 001 " + users[pfd.fd].get_nick() + ": Welcome!";
+		std::cout << welcome << std::endl;
+		send(pfd.fd, welcome.c_str(), welcome.length(), 0);
+	}
+
+	void parse_command(pollfd &pfd, const std::string &cmd)
+	{
+		(void)pfd;
+		std::vector<std::string> args = split(cmd);
+		if (args.size() < 1)
+			return;
+
+		if (args[0] == "PROTOCTL")
+			std::cout << "Go fuck yourself." << std::endl;
+		else if (args[0] == "PASS")
+		{
+			std::cout << "pass: `" << args[1] << "`" << std::endl;
+			if (args[1] == password)
+				std::cout << "yes" << std::endl;
+			else
+				std::cout << "no" << std::endl;
+		}
+		else if (args[0] == "USER")
+		{
+			users[pfd.fd].set_user(args[1]);
+			welcome(pfd);
+		}
+		else if (args[0] == "NICK")
+		{
+			users[pfd.fd].set_nick(args[1]);
 		}
 	}
 
-#define RED "\033[31m"
-#define GREEN "\033[32m"
-#define YELLOW "\033[33m"
-#define RESET "\033[0m"
-
 	void parse_data(pollfd &pfd)
 	{
-		// std::cout << YELLOW << "Parsing data on fd " << pfd.fd << ", good? " << data_streams[pfd.fd].good() << RESET << std::endl;
-         std::string         line;
+		std::istringstream iss(users[pfd.fd].get_data());
+		std::string line;
 
-        while( std::getline(data_streams[pfd.fd], line) )
+		while (std::getline(iss, line))
 		{
-			std::cout << line << std::endl;
+			std::cout << YELLOW << line << RESET << std::endl;
+			parse_command(pfd, line);
 		}
 	}
 
@@ -150,6 +236,5 @@ int main(int argc, char **argv)
 	{
 		std::cout << e.what() << std::endl;
 	}
-
 	return (EXIT_SUCCESS);
 }
