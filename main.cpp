@@ -15,9 +15,34 @@ void insist(T ret, U err, const std::string &msg)
 		throw std::runtime_error(msg);
 }
 
-bool starts_with(const std::string &str, const std::string &prefix)
+enum {
+	RPL_WELCOME = 1,
+	RPL_YOURHOST = 2,
+	RPL_CREATED = 3,
+	RPL_MYINFO = 4,
+	RPL_BOUNCE = 5,
+	RPL_USERHOST = 302,
+	RPL_ISON = 303,
+	RPL_AWAY = 301,
+	RPL_UNAWAY = 305,
+	RPL_NOWAWAY = 306,
+	RPL_WHOISUSER = 311,
+	RPL_MOTD = 372,
+};
+
+std::string escape(const std::string &str)
 {
-	return str.compare(0, prefix.size(), prefix) == 0;
+	std::string escaped;
+	for (size_t i = 0; i < str.length(); i++)
+	{
+		if (str[i] == '\n')
+			escaped += "\\n";
+		else if (str[i] == '\r')
+			escaped += "\\r";
+		else
+			escaped += str[i];
+	}
+	return escaped;
 }
 
 std::vector<std::string> split(const std::string &str)
@@ -36,7 +61,12 @@ std::vector<std::string> split(const std::string &str)
 	return splits;
 }
 
-// fasfjasjfadjksABCABCABCdsdjsdsj
+std::string c(int code)
+{
+	std::stringstream ss;
+	ss << std::setw(3) << std::setfill('0') << code;
+	return ss.str();
+}
 
 class User
 {
@@ -74,6 +104,7 @@ class Server
 {
 private:
 	std::string password;
+	std::string name;
 	addrinfo *info;
 	int server_fd;
 	std::vector<pollfd> fds;
@@ -81,7 +112,7 @@ private:
 	bool running;
 
 public:
-	Server(const std::string &port, const std::string &pass) : password(pass), info(NULL), running(true)
+	Server(const std::string &port, const std::string &pass) : password(pass), name("globalhost"), info(NULL), running(true)
 	{
 		int on = 1;
 		addrinfo hints = initialized<addrinfo>();
@@ -146,15 +177,14 @@ public:
 
 			buffer[length] = 0;
 			users[pfd.fd].append_data(std::string(buffer));
-			send(pfd.fd, buffer, length, 0);
+			// send(pfd.fd, buffer, length, 0);
 		}
 	}
 	
 	void welcome(pollfd &pfd)
 	{
-		std::string welcome = ":localhost 001 " + users[pfd.fd].get_nick() + " :Welcome!";
-		std::cout << welcome << std::endl;
-		send(pfd.fd, welcome.c_str(), welcome.length(), 0);
+		send_message(pfd, ":" + name + " " + c(RPL_WELCOME) + " " + users[pfd.fd].get_nick() + " :kys " + users[pfd.fd].get_nick() + "!" + users[pfd.fd].get_user() + "@" + name);
+		send_message(pfd, ":" + name + " " + c(RPL_MOTD) + " " + users[pfd.fd].get_nick() + " :- LOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLO");
 	}
 
 	void parse_command(pollfd &pfd, const std::string &cmd)
@@ -192,7 +222,7 @@ public:
 
 		while (std::getline(iss, line))
 		{
-			std::cout << YELLOW << line << RESET << std::endl;
+			std::cout << YELLOW << "Received from " << RESET << pfd.fd << YELLOW": `"RESET << escape(line) << YELLOW"`"RESET << std::endl;
 			parse_command(pfd, line);
 		}
 	}
@@ -205,6 +235,13 @@ public:
 			receive_data(pfd);
 			parse_data(pfd);
 		}
+	}
+
+	void send_message(pollfd &pfd, const std::string &message)
+	{
+		std::cout << GREEN << "Sending to " << RESET << pfd.fd << GREEN": `"RESET << escape(message) << GREEN"`"RESET << std::endl;
+		std::string ircmsg(message + "\r\n");
+		send(pfd.fd, ircmsg.c_str(), ircmsg.length(), 0);
 	}
 
 	static pollfd make_pfd(int fd, int events, int revents)
