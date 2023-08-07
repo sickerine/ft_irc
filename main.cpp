@@ -15,19 +15,16 @@ void insist(T ret, U err, const std::string &msg)
 		throw std::runtime_error(msg);
 }
 
-enum {
+enum
+{
 	RPL_WELCOME = 1,
-	RPL_YOURHOST = 2,
-	RPL_CREATED = 3,
-	RPL_MYINFO = 4,
-	RPL_BOUNCE = 5,
-	RPL_USERHOST = 302,
-	RPL_ISON = 303,
-	RPL_AWAY = 301,
-	RPL_UNAWAY = 305,
-	RPL_NOWAWAY = 306,
-	RPL_WHOISUSER = 311,
 	RPL_MOTD = 372,
+	RPL_STARTOFMOTD = 375,
+	RPL_ENDOFMOTD = 376,
+	ERR_NICKNAMEINUSE = 433,
+	RPL_LISTSTART = 321,
+	RPL_LIST = 322,
+	RPL_LISTEND = 323,
 };
 
 std::string escape(const std::string &str)
@@ -51,7 +48,8 @@ std::vector<std::string> split(const std::string &str)
 	std::istringstream iss(str);
 	std::string line;
 
-	while (std::getline(iss, line, ' ')) {
+	while (std::getline(iss, line, ' '))
+	{
 		if (line.empty())
 			splits.back() += ' ';
 		else
@@ -70,34 +68,73 @@ std::string c(int code)
 
 class User
 {
-	private:
-		std::string nickname;
-		std::string username;
-		std::string datastream;
-		bool authenticated;
-	public:
-		User() : authenticated(false) 
+private:
+	std::string nickname;
+	std::string username;
+	std::string datastream;
+	bool authenticated;
+	bool registered;
+
+public:
+	User() : authenticated(false), registered(false)
+	{
+		std::cout << "new user constructed" << std::endl;
+	}
+
+	~User()
+	{
+	}
+
+	void set_nick(const std::string &nick) { nickname = nick; }
+	const std::string &get_nick() { return nickname; }
+
+	void set_user(const std::string &user) { username = user; }
+	const std::string &get_user() { return username; }
+
+	void set_auth(bool auth) { authenticated = auth; }
+	bool get_auth() { return authenticated; }
+
+	void set_registered(bool reg) { registered = reg; }
+	bool get_registered() { return registered; }
+
+	void append_data(const std::string &data) { datastream += data; }
+	std::string &get_data() { return datastream; }
+};
+
+class Channel
+{
+private:
+	std::string name;
+	std::vector<User *> users;
+
+public:
+	Channel(const std::string &n) : name(n)
+	{
+	}
+
+	void add_user(User &user)
+	{
+		users.push_back(&user);
+	}
+
+	void remove_user(User &user)
+	{
+		for (size_t i = 0; i < users.size(); i++)
 		{
-			std::cout << "new user constructed" << std::endl;
+			if (users[i] == &user)
+			{
+				users.erase(users.begin() + i);
+				break;
+			}
 		}
-
-		~User()
-		{
-
-		}
-
-		void set_nick(const std::string &nick) { nickname = nick; }
-		const std::string &get_nick() { return nickname; }
-
-		void set_user(const std::string &user) { username = user; }
-		const std::string &get_user() { return username; }
-
-		void set_auth() { authenticated = true; }
-		bool get_auth() { return authenticated; }
-
-		void append_data(const std::string &data) { datastream += data; }
-		std::string &get_data() { return datastream; }
-
+	}
+	const std::string &get_name() { return name; }
+	std::string get_users_count()
+	{
+		std::stringstream ss;
+		ss << users.size();
+		return ss.str();
+	}
 };
 
 class Server
@@ -110,9 +147,11 @@ private:
 	std::vector<pollfd> fds;
 	std::map<int, User> users;
 	bool running;
+	std::string host;
+	std::vector<Channel> channels;
 
 public:
-	Server(const std::string &port, const std::string &pass) : password(pass), name("globalhost"), info(NULL), running(true)
+	Server(const std::string &port, const std::string &pass) : password(pass), name("globalhost"), info(NULL), running(true), host("10.12.4.7")
 	{
 		int on = 1;
 		addrinfo hints = initialized<addrinfo>();
@@ -121,7 +160,7 @@ public:
 		hints.ai_protocol = IPPROTO_TCP;
 		hints.ai_socktype = SOCK_STREAM;
 
-		insist(getaddrinfo(NULL, port.c_str(), &hints, &info), -1, "getaddrinfo failed");
+		insist(getaddrinfo(host.c_str(), port.c_str(), &hints, &info), -1, "getaddrinfo failed");
 		insist(info == NULL, true, "info is null");
 
 		server_fd = socket(info->ai_family, info->ai_socktype, info->ai_protocol);
@@ -133,6 +172,10 @@ public:
 		insist(listen(server_fd, 69), -1, "listen failed");
 
 		fds.push_back(make_pfd(server_fd, POLLIN, 0));
+
+		// Initialize channels
+		channels.push_back(Channel("global"));
+		channels.push_back(Channel("hentai"));
 	}
 	~Server()
 	{
@@ -165,10 +208,10 @@ public:
 		}
 	}
 
-	void receive_data(pollfd & pfd)
+	void receive_data(pollfd &pfd)
 	{
 		char buffer[1024];
-		int	length;
+		int length;
 		while (true)
 		{
 			length = recv(pfd.fd, buffer, sizeof(buffer) - 1, 0);
@@ -180,38 +223,74 @@ public:
 			// send(pfd.fd, buffer, length, 0);
 		}
 	}
-	
+
 	void welcome(pollfd &pfd)
 	{
 		send_message(pfd, ":" + name + " " + c(RPL_WELCOME) + " " + users[pfd.fd].get_nick() + " :kys " + users[pfd.fd].get_nick() + "!" + users[pfd.fd].get_user() + "@" + name);
+		send_message(pfd, ":" + name + " " + c(RPL_STARTOFMOTD) + " " + users[pfd.fd].get_user() + " :- " + name + " Message of the Day -");
 		send_message(pfd, ":" + name + " " + c(RPL_MOTD) + " " + users[pfd.fd].get_nick() + " :- LOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLO");
+		send_message(pfd, ":" + name + " " + c(RPL_ENDOFMOTD) + " " + users[pfd.fd].get_user() + " :End of /MOTD command.");
 	}
 
 	void parse_command(pollfd &pfd, const std::string &cmd)
 	{
-		(void)pfd;
+		User &user = users[pfd.fd];
 		std::vector<std::string> args = split(cmd);
+
 		if (args.size() < 1)
 			return;
 
-		if (args[0] == "PROTOCTL")
-			std::cout << "Go fuck yourself." << std::endl;
-		else if (args[0] == "PASS")
+		// User not authenticated cannot send commands other than PASS
+
+		if (!user.get_auth())
 		{
-			std::cout << "pass: `" << args[1] << "`" << std::endl;
-			if (args[1] == password)
-				std::cout << "yes" << std::endl;
-			else
-				std::cout << "no" << std::endl;
+			if (args[0] == "PASS")
+			{
+				std::cout << "pass: `" << args[1] << "`" << std::endl;
+				if (args[1] == password)
+				{
+					std::cout << "yes" << std::endl;
+					user.set_auth(true);
+				}
+				else
+					std::cout << "no" << std::endl;
+			}
+			else if (args[0] != "CAP" && args[0] != "PROTOCTL")
+			{
+				terminate_connection(pfd);
+				throw std::runtime_error("connection terminated");
+			}
 		}
 		else if (args[0] == "USER")
 		{
-			users[pfd.fd].set_user(args[1]);
+			user.set_user(args[1]);
 			welcome(pfd);
 		}
 		else if (args[0] == "NICK")
 		{
-			users[pfd.fd].set_nick(args[1]);
+			std::cout << "nick: `" << args[1] << "`" << std::endl;
+			std::cout << "getnick: `" << user.get_nick() << "`" << std::endl;
+			if (user.get_nick() == args[1])
+				return;
+
+			bool taken = find_user_by_nickname(args[1]) != NULL;
+			std::cout << "setting nickname " << args[1] << ", taken: " << taken << std::endl;
+			if (taken)
+			{
+				send_message(pfd, ":" + name + " " + c(ERR_NICKNAMEINUSE) + " " + args[1] + " :" + args[1]);
+				return;
+			}
+			user.set_nick(args[1]);
+			if (user.get_registered())
+				send_message(pfd, ":" + name + " NICK " + args[1]);
+			user.set_registered(true);
+		}
+		else if (args[0] == "LIST")
+		{
+			send_message(pfd, ":" + name + " " + c(RPL_LISTSTART) + " " + user.get_nick() + " Channel :Users Name");
+			for (size_t i = 0; i < channels.size(); i++)
+				send_message(pfd, ":" + name + " " + c(RPL_LIST) + " " + user.get_nick() + " " + channels[i].get_name() + " " + channels[i].get_users_count() + " :");
+			send_message(pfd, ":" + name + " " + c(RPL_LISTEND) + " " + user.get_nick() + " :End of /LIST");	
 		}
 	}
 
@@ -220,18 +299,33 @@ public:
 		std::istringstream iss(users[pfd.fd].get_data());
 		std::string line;
 
+		std::cout << RED"PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
+
 		while (std::getline(iss, line))
 		{
-			std::cout << YELLOW << "Received from " << RESET << pfd.fd << YELLOW": `"RESET << escape(line) << YELLOW"`"RESET << std::endl;
-			parse_command(pfd, line);
+			std::cout << YELLOW << "Received from " << RESET << pfd.fd << YELLOW ": `" RESET << escape(line) << YELLOW "`" RESET << std::endl;
+			try {
+				if (line.substr(line.length() - 1) == "\r")
+				{
+					parse_command(pfd, line);
+					users[pfd.fd].get_data().erase(0, line.length() + 1);
+				}
+				else
+					break;
+			}
+			catch (...) {
+				return;
+			}
 		}
+		std::cout << RED"AFTER PARSING DATA: " << escape(users[pfd.fd].get_data()) << RESET << std::endl;
 	}
 
 	void process_events(pollfd &pfd)
 	{
 		if (pfd.fd == server_fd)
 			accept_connections();
-		else {
+		else
+		{
 			receive_data(pfd);
 			parse_data(pfd);
 		}
@@ -239,7 +333,7 @@ public:
 
 	void send_message(pollfd &pfd, const std::string &message)
 	{
-		std::cout << GREEN << "Sending to " << RESET << pfd.fd << GREEN": `"RESET << escape(message) << GREEN"`"RESET << std::endl;
+		std::cout << GREEN << "Sending to " << RESET << pfd.fd << GREEN ": `" RESET << escape(message) << GREEN "`" RESET << std::endl;
 		std::string ircmsg(message + "\r\n");
 		send(pfd.fd, ircmsg.c_str(), ircmsg.length(), 0);
 	}
@@ -252,6 +346,30 @@ public:
 		pfd.events = events;
 		pfd.revents = revents;
 		return pfd;
+	}
+
+	void terminate_connection(pollfd &pfd)
+	{
+		close(pfd.fd);
+		users.erase(pfd.fd);
+		for (std::vector<pollfd>::iterator it = fds.begin(); it != fds.end(); ++it)
+		{
+			if (it->fd == pfd.fd)
+			{
+				fds.erase(it);
+				break;
+			}
+		}
+	}
+
+	User *find_user_by_nickname(const std::string &nickname)
+	{
+		for (std::map<int, User>::iterator it = users.begin(); it != users.end(); ++it)
+		{
+			if (it->second.get_nick() == nickname)
+				return &it->second;
+		}
+		return NULL;
 	}
 };
 
