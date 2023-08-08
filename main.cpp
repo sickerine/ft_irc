@@ -60,6 +60,19 @@ std::string c(int code)
 	return ss.str();
 }
 
+template <typename T>
+std::string join(T begin, T end, std::string delim)
+{
+	std::string joined;
+	for (T it = begin; it != end; it++)
+	{
+		joined += *it;
+		if (it + 1 != end)
+			joined += delim;
+	}
+	return joined;
+}
+
 class User
 {
 private:
@@ -112,6 +125,11 @@ public:
 	std::string who_this()
 	{
 		return nickname + " " + username + " " + hostname + " * " + realname;
+	}
+	
+	std::string get_hostmask()
+	{
+		return nickname + "!" + username + "@" + hostname;
 	}
 };
 
@@ -313,7 +331,7 @@ public:
 				return;
 			}
 			user.set_user(args[1]);
-			user.set_real(args[4]);
+			user.set_real(join(args.begin() + 4, args.end(), " "));
 			welcome(pfd);
 		}
 		else if (args[0] == "NICK")
@@ -375,6 +393,7 @@ public:
 						send_message(pfd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user.get_nick() + " " + params[i] + " :Cannot join channel (+k)");
 					else
 					{
+						send_message(pfd, ":" + user.get_hostmask() + " JOIN :" + params[i]);
 						send_message(pfd, ":" + name + " " + c(RPL_TOPIC) + " " + user.get_nick() + " " + params[i] + " :" + channels[params[i]].get_topic());
 						send_message(pfd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user.get_nick() + " = " + params[i] + " :" + channels[params[i]].get_users_list());
 						send_message(pfd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user.get_nick() + " " + params[i] + " :End of /NAMES list");
@@ -401,7 +420,7 @@ public:
 			std::vector<std::string> who_list = channels[args[1]].get_who_list();
 
 			for (size_t i = 0; i < who_list.size(); i++)
-				send_message(pfd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user.get_nick() + " " + args[1] + " " + who_list[i] + " :" + channels[args[1]].get_topic());
+				send_message(pfd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user.get_nick() + " " + args[1] + "	 " + who_list[i]);
 			send_message(pfd, ":" + name + " " + c(RPL_ENDOFWHO) + " " + user.get_nick() + " " + args[1] + " :End of /WHO list");
 		}
 	}
