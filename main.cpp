@@ -15,18 +15,6 @@ void insist(T ret, U err, const std::string &msg)
 		throw std::runtime_error(msg);
 }
 
-enum
-{
-	RPL_WELCOME = 1,
-	RPL_MOTD = 372,
-	RPL_STARTOFMOTD = 375,
-	RPL_ENDOFMOTD = 376,
-	ERR_NICKNAMEINUSE = 433,
-	RPL_LISTSTART = 321,
-	RPL_LIST = 322,
-	RPL_LISTEND = 323,
-};
-
 std::string escape(const std::string &str)
 {
 	std::string escaped;
@@ -42,20 +30,26 @@ std::string escape(const std::string &str)
 	return escaped;
 }
 
-std::vector<std::string> split(const std::string &str)
+std::vector<std::string> split(const std::string &str, char delim, bool trim = false)
 {
 	std::vector<std::string> splits;
 	std::istringstream iss(str);
 	std::string line;
 
-	while (std::getline(iss, line, ' '))
+	while (std::getline(iss, line, delim))
 	{
 		if (line.empty())
-			splits.back() += ' ';
+			splits.back() += delim;
 		else
 			splits.push_back(line);
 	}
-	splits.back().erase(splits.back().length() - 1);
+	if (trim)
+		splits.back().erase(splits.back().length() - 1);
+
+	for (size_t i = 0; i < splits.size(); i++)
+	{
+		std::cout << "[" << i << "] " << splits[i] << std::endl;
+	}
 	return splits;
 }
 
@@ -71,12 +65,15 @@ class User
 private:
 	std::string nickname;
 	std::string username;
+	std::string hostname;
+	std::string realname;
 	std::string datastream;
 	bool authenticated;
 	bool registered;
+	int status;
 
 public:
-	User() : authenticated(false), registered(false)
+	User() : authenticated(false), registered(false), status(REGULAR)
 	{
 		std::cout << "new user constructed" << std::endl;
 	}
@@ -91,6 +88,13 @@ public:
 	void set_user(const std::string &user) { username = user; }
 	const std::string &get_user() { return username; }
 
+	void set_host(sockaddr &addr) { hostname = inet_ntoa(((sockaddr_in *)&addr)->sin_addr); }
+	const std::string &get_host() { return hostname; }
+	void set_host(const std::string &host) { hostname = host; }
+
+	void set_real(const std::string &real) { realname = real; }
+	const std::string &get_real() { return realname; }
+
 	void set_auth(bool auth) { authenticated = auth; }
 	bool get_auth() { return authenticated; }
 
@@ -99,34 +103,44 @@ public:
 
 	void append_data(const std::string &data) { datastream += data; }
 	std::string &get_data() { return datastream; }
+
+	std::string get_prefixed_nick()
+	{
+		return std::string(status == OPERATOR ? "@" : "") + nickname;
+	}
+
+	std::string who_this()
+	{
+		return nickname + " " + username + " " + hostname + " * " + realname;
+	}
 };
 
 class Channel
 {
 private:
 	std::string name;
-	std::vector<User *> users;
+	std::string key;
+	std::string topic;
+	std::map<int, User *> users;
 
 public:
-	Channel(const std::string &n) : name(n)
+	Channel() {}
+	Channel(const std::string &n, const std::string &k, const std::string &t) : name(n), key(k), topic(t)
 	{
+
 	}
 
-	void add_user(User &user)
+	int add_user(pollfd &pfd, User &user, const std::string &key)
 	{
-		users.push_back(&user);
+		if (this->key != key)
+			return ERR_BADCHANNELKEY;
+		users[pfd.fd] = &user;
+		return 0;
 	}
 
-	void remove_user(User &user)
+	void remove_user(pollfd &pfd)
 	{
-		for (size_t i = 0; i < users.size(); i++)
-		{
-			if (users[i] == &user)
-			{
-				users.erase(users.begin() + i);
-				break;
-			}
-		}
+		users.erase(pfd.fd);
 	}
 	const std::string &get_name() { return name; }
 	std::string get_users_count()
@@ -135,6 +149,30 @@ public:
 		ss << users.size();
 		return ss.str();
 	}
+	
+	const std::string &get_topic() { return topic; }
+	void set_topic(const std::string &t) { topic = t; }
+
+	std::string get_users_list()
+	{
+		std::string list;
+		for (std::map<int, User *>::iterator it = users.begin(); it != users.end(); it++)
+		{
+			list += it->second->get_prefixed_nick() + " ";
+		}
+		return list;
+	}
+
+	std::vector<std::string> get_who_list()
+	{
+		std::vector<std::string> list;
+		for (std::map<int, User *>::iterator it = users.begin(); it != users.end(); it++)
+		{
+			list.push_back(it->second->who_this());
+		}
+		return list;
+	}
+
 };
 
 class Server
@@ -148,7 +186,7 @@ private:
 	std::map<int, User> users;
 	bool running;
 	std::string host;
-	std::vector<Channel> channels;
+	std::map<std::string, Channel> channels;
 
 public:
 	Server(const std::string &port, const std::string &pass) : password(pass), name("globalhost"), info(NULL), running(true), host("10.12.4.7")
@@ -173,14 +211,18 @@ public:
 
 		fds.push_back(make_pfd(server_fd, POLLIN, 0));
 
-		// Initialize channels
-		channels.push_back(Channel("global"));
-		channels.push_back(Channel("hentai"));
+		create_channel("#global", "123", "safe");
+		create_channel("#hentai", "123", "nsfw");
 	}
 	~Server()
 	{
 		if (info)
 			freeaddrinfo(info);
+	}
+
+	void create_channel(const std::string &name, const std::string &key, const std::string &topic)
+	{
+		channels[name] = Channel(name, key, topic);
 	}
 
 	void run()
@@ -199,11 +241,16 @@ public:
 
 		while (true)
 		{
-			new_fd = accept(server_fd, NULL, NULL);
+			sockaddr addr;
+			socklen_t len = sizeof(addr);
+
+			new_fd = accept(server_fd, &addr, &len);
 			if (new_fd == -1)
 				break;
 
 			fds.push_back(make_pfd(new_fd, POLLIN, 0));
+			users[new_fd] = User();
+			users[new_fd].set_host(addr);
 			std::cout << "Connection accepted on fd " << new_fd << std::endl;
 		}
 	}
@@ -220,7 +267,6 @@ public:
 
 			buffer[length] = 0;
 			users[pfd.fd].append_data(std::string(buffer));
-			// send(pfd.fd, buffer, length, 0);
 		}
 	}
 
@@ -235,12 +281,10 @@ public:
 	void parse_command(pollfd &pfd, const std::string &cmd)
 	{
 		User &user = users[pfd.fd];
-		std::vector<std::string> args = split(cmd);
+		std::vector<std::string> args = split(cmd, ' ', true);
 
 		if (args.size() < 1)
 			return;
-
-		// User not authenticated cannot send commands other than PASS
 
 		if (!user.get_auth())
 		{
@@ -263,18 +307,21 @@ public:
 		}
 		else if (args[0] == "USER")
 		{
+			if (args.size() < 5)
+			{
+				need_more_params(pfd, args[0]);
+				return;
+			}
 			user.set_user(args[1]);
+			user.set_real(args[4]);
 			welcome(pfd);
 		}
 		else if (args[0] == "NICK")
 		{
-			std::cout << "nick: `" << args[1] << "`" << std::endl;
-			std::cout << "getnick: `" << user.get_nick() << "`" << std::endl;
 			if (user.get_nick() == args[1])
 				return;
 
 			bool taken = find_user_by_nickname(args[1]) != NULL;
-			std::cout << "setting nickname " << args[1] << ", taken: " << taken << std::endl;
 			if (taken)
 			{
 				send_message(pfd, ":" + name + " " + c(ERR_NICKNAMEINUSE) + " " + args[1] + " :" + args[1]);
@@ -288,9 +335,74 @@ public:
 		else if (args[0] == "LIST")
 		{
 			send_message(pfd, ":" + name + " " + c(RPL_LISTSTART) + " " + user.get_nick() + " Channel :Users Name");
-			for (size_t i = 0; i < channels.size(); i++)
-				send_message(pfd, ":" + name + " " + c(RPL_LIST) + " " + user.get_nick() + " " + channels[i].get_name() + " " + channels[i].get_users_count() + " :");
-			send_message(pfd, ":" + name + " " + c(RPL_LISTEND) + " " + user.get_nick() + " :End of /LIST");	
+			for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); it++)
+				send_message(pfd, ":" + name + " " + c(RPL_LIST) + " " + user.get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :");
+			send_message(pfd, ":" + name + " " + c(RPL_LISTEND) + " " + user.get_nick() + " :End of /LIST");
+		}
+		else if (args[0] == "QUIT")
+		{
+			terminate_connection(pfd);
+			throw std::runtime_error("connection terminated");
+		}
+		else if (args[0] == "JOIN")
+		{
+			if (args.size() < 2)
+			{
+				need_more_params(pfd, args[0]);
+				return;
+			}
+
+			std::vector<std::string> params = split(args[1], ',');
+
+			if (params.size() < 1)
+			{
+				need_more_params(pfd, args[0]);
+				return;
+			}
+
+			std::vector<std::string> keys;
+
+			if (args.size() > 2)
+				keys = split(args[2], ',');
+
+			for (size_t i = 0; i < params.size(); i++)
+			{
+				std::string channel_key = keys.size() > i ? keys[i] : "";
+				if (channels.find(params[i]) != channels.end())
+				{
+					int ret = channels[params[i]].add_user(pfd, user, channel_key);
+					if (ret == ERR_BADCHANNELKEY)
+						send_message(pfd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user.get_nick() + " " + params[i] + " :Cannot join channel (+k)");
+					else
+					{
+						send_message(pfd, ":" + name + " " + c(RPL_TOPIC) + " " + user.get_nick() + " " + params[i] + " :" + channels[params[i]].get_topic());
+						send_message(pfd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user.get_nick() + " = " + params[i] + " :" + channels[params[i]].get_users_list());
+						send_message(pfd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user.get_nick() + " " + params[i] + " :End of /NAMES list");
+					}
+				}
+				else
+					no_such_channel(pfd, params[i]);
+			}
+		}
+		else if (args[0] == "WHO")
+		{
+			if (args.size() < 2)
+			{
+				need_more_params(pfd, args[0]);
+				return;
+			}
+
+			if (channels.find(args[1]) == channels.end())
+			{
+				no_such_channel(pfd, args[1]);
+				return;
+			}
+
+			std::vector<std::string> who_list = channels[args[1]].get_who_list();
+
+			for (size_t i = 0; i < who_list.size(); i++)
+				send_message(pfd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user.get_nick() + " " + args[1] + " " + who_list[i] + " :" + channels[args[1]].get_topic());
+			send_message(pfd, ":" + name + " " + c(RPL_ENDOFWHO) + " " + user.get_nick() + " " + args[1] + " :End of /WHO list");
 		}
 	}
 
@@ -299,12 +411,13 @@ public:
 		std::istringstream iss(users[pfd.fd].get_data());
 		std::string line;
 
-		std::cout << RED"PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
+		std::cout << RED "PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
 
 		while (std::getline(iss, line))
 		{
 			std::cout << YELLOW << "Received from " << RESET << pfd.fd << YELLOW ": `" RESET << escape(line) << YELLOW "`" RESET << std::endl;
-			try {
+			try
+			{
 				if (line.substr(line.length() - 1) == "\r")
 				{
 					parse_command(pfd, line);
@@ -313,11 +426,12 @@ public:
 				else
 					break;
 			}
-			catch (...) {
+			catch (...)
+			{
 				return;
 			}
 		}
-		std::cout << RED"AFTER PARSING DATA: " << escape(users[pfd.fd].get_data()) << RESET << std::endl;
+		std::cout << RED "AFTER PARSING DATA: " << escape(users[pfd.fd].get_data()) << RESET << std::endl;
 	}
 
 	void process_events(pollfd &pfd)
@@ -351,6 +465,8 @@ public:
 	void terminate_connection(pollfd &pfd)
 	{
 		close(pfd.fd);
+		for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); ++it)
+			it->second.remove_user(pfd);
 		users.erase(pfd.fd);
 		for (std::vector<pollfd>::iterator it = fds.begin(); it != fds.end(); ++it)
 		{
@@ -370,6 +486,16 @@ public:
 				return &it->second;
 		}
 		return NULL;
+	}
+
+	void need_more_params(pollfd &pfd, const std::string &command)
+	{
+		send_message(pfd, ":" + name + " " + c(ERR_NEEDMOREPARAMS) + " " + users[pfd.fd].get_nick() + " " + command + " :Not enough parameters");
+	}
+
+	void no_such_channel(pollfd &pfd, const std::string &channel)
+	{
+		send_message(pfd, ":" + name + " " + c(ERR_NOSUCHCHANNEL) + " " + users[pfd.fd].get_nick() + " " + channel + " :No such channel");
 	}
 };
 
