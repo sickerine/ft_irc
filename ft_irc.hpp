@@ -20,6 +20,7 @@
 #define GREEN "\033[32m"
 #define YELLOW "\033[33m"
 #define RESET "\033[0m"
+#define BLUE "\033[34m"
 
 
 #pragma region TODO
@@ -46,6 +47,12 @@ enum
     RPL_ENDOFNAMES = 366,
     RPL_WHOREPLY = 352,
     RPL_ENDOFWHO = 315,
+    ERR_NOTONCHANNEL = 442,
+    ERR_NOSUCHNICK = 401,
+    RPL_NOWOFF = 605,
+    RPL_ISON = 303,
+    RPL_YOUREOPER = 381,
+    ERR_PASSWDMISMATCH = 464,
 };
 
 enum {

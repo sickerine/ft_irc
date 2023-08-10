@@ -114,6 +114,9 @@ public:
 	void set_registered(bool reg) { registered = reg; }
 	bool get_registered() { return registered; }
 
+	void set_status(int s) { status = s; }
+	int get_status() { return status; }
+
 	void append_data(const std::string &data) { datastream += data; }
 	std::string &get_data() { return datastream; }
 
@@ -131,6 +134,7 @@ public:
 	{
 		return nickname + "!" + username + "@" + hostname;
 	}
+
 };
 
 class Channel
@@ -171,6 +175,8 @@ public:
 	const std::string &get_topic() { return topic; }
 	void set_topic(const std::string &t) { topic = t; }
 
+	std::map<int, User *> &get_users() { return users; }
+
 	std::string get_users_list()
 	{
 		std::string list;
@@ -191,6 +197,21 @@ public:
 		return list;
 	}
 
+	bool has_user(User &user)
+	{
+		for (std::map<int, User *>::iterator it = users.begin(); it != users.end(); it++)
+		{
+			if (it->second == &user)
+				return true;
+		}
+		return false;
+	}
+
+	bool has_user(pollfd &pfd)
+	{
+		return users.find(pfd.fd) != users.end();
+	}
+	
 };
 
 class Server
@@ -205,9 +226,10 @@ private:
 	bool running;
 	std::string host;
 	std::map<std::string, Channel> channels;
-
+	std::string operator_username;
+	std::string operator_password;
 public:
-	Server(const std::string &port, const std::string &pass) : password(pass), name("globalhost"), info(NULL), running(true), host("10.12.4.7")
+	Server(const std::string &port, const std::string &pass) : password(pass), name("globalhost"), info(NULL), running(true), host("10.12.4.7"), operator_username("operator"), operator_password("password")
 	{
 		int on = 1;
 		addrinfo hints = initialized<addrinfo>();
@@ -229,8 +251,8 @@ public:
 
 		fds.push_back(make_pfd(server_fd, POLLIN, 0));
 
-		create_channel("#global", "123", "safe");
-		create_channel("#hentai", "123", "nsfw");
+		create_channel("#global", "", "safe");
+		create_channel("#hentai", "abc", "nsfw");
 	}
 	~Server()
 	{
@@ -354,7 +376,7 @@ public:
 		{
 			send_message(pfd, ":" + name + " " + c(RPL_LISTSTART) + " " + user.get_nick() + " Channel :Users Name");
 			for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); it++)
-				send_message(pfd, ":" + name + " " + c(RPL_LIST) + " " + user.get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :");
+				send_message(pfd, ":" + name + " " + c(RPL_LIST) + " " + user.get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :" + it->second.get_topic());
 			send_message(pfd, ":" + name + " " + c(RPL_LISTEND) + " " + user.get_nick() + " :End of /LIST");
 		}
 		else if (args[0] == "QUIT")
@@ -388,14 +410,15 @@ public:
 				std::string channel_key = keys.size() > i ? keys[i] : "";
 				if (channels.find(params[i]) != channels.end())
 				{
-					int ret = channels[params[i]].add_user(pfd, user, channel_key);
+					Channel &channel = channels[params[i]];
+					int ret = channel.add_user(pfd, user, channel_key);
 					if (ret == ERR_BADCHANNELKEY)
 						send_message(pfd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user.get_nick() + " " + params[i] + " :Cannot join channel (+k)");
 					else
 					{
-						send_message(pfd, ":" + user.get_hostmask() + " JOIN :" + params[i]);
-						send_message(pfd, ":" + name + " " + c(RPL_TOPIC) + " " + user.get_nick() + " " + params[i] + " :" + channels[params[i]].get_topic());
-						send_message(pfd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user.get_nick() + " = " + params[i] + " :" + channels[params[i]].get_users_list());
+						broadcast_message(channel, ":" + user.get_hostmask() + " JOIN :" + params[i]);
+						send_message(pfd, ":" + name + " " + c(RPL_TOPIC) + " " + user.get_nick() + " " + params[i] + " :" + channel.get_topic());
+						send_message(pfd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user.get_nick() + " = " + params[i] + " :" + channel.get_users_list());
 						send_message(pfd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user.get_nick() + " " + params[i] + " :End of /NAMES list");
 					}
 				}
@@ -422,6 +445,125 @@ public:
 			for (size_t i = 0; i < who_list.size(); i++)
 				send_message(pfd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user.get_nick() + " " + args[1] + "	 " + who_list[i]);
 			send_message(pfd, ":" + name + " " + c(RPL_ENDOFWHO) + " " + user.get_nick() + " " + args[1] + " :End of /WHO list");
+		}
+		else if (args[0] == "PRIVMSG")
+		{
+			if (args.size() < 3)
+			{
+				need_more_params(pfd, args[0]);
+				return;
+			}
+
+			std::string message = join(args.begin() + 2, args.end(), " ");
+
+			if (args[1][0] == '#')
+			{
+				if (channels.find(args[1]) == channels.end())
+				{
+					no_such_channel(pfd, args[1]);
+					return;
+				}
+
+				Channel &channel = channels[args[1]];
+				if (!channel.has_user(pfd))
+				{
+					not_on_channel(pfd, args[1]);
+					return;
+				}
+
+				broadcast_message(channel, ":" + user.get_hostmask() + " PRIVMSG " + args[1] + " " + message, &users[pfd.fd]);
+			}
+			else
+			{
+				int fd;
+				User *user = find_user_by_nickname(args[1], &fd);
+				if (user == NULL)
+				{
+					no_such_nick(pfd, args[1]);
+					return;
+				}
+
+				send_message(fd, ":" + user->get_hostmask() + " PRIVMSG " + user->get_nick() + " " + message);
+			}
+		}
+		else if (args[0] == "ISON")
+		{
+			if (args.size() < 2)
+			{
+				need_more_params(pfd, args[0]);
+				return;
+			}
+
+			if (args[1][0] == '#')
+			{
+				if (channels.find(args[1]) == channels.end())
+				{
+					send_message(pfd, ":" + name + " " + c(RPL_NOWOFF) + " " + user.get_nick() + " " + args[1] + " :" + args[1] + " * * 0 is offline");
+					return;
+				}
+			}
+			else
+			{
+				User *user = find_user_by_nickname(args[1]);
+				if (user == NULL)
+				{
+					send_message(pfd, ":" + name + " " + c(RPL_ISON) + " " + user->get_nick() + " :" + args[1]);
+					return;
+				}
+			}
+			send_message(pfd, ":" + name + " " + c(RPL_ISON) + " " + user.get_nick() + " :");
+		}
+		else if (args[0] == "PART")
+		{
+			if (args.size() < 3)
+			{
+				need_more_params(pfd, args[0]);
+				return;
+			}
+
+			if (channels.find(args[1]) == channels.end())
+			{
+				no_such_channel(pfd, args[1]);
+				return;
+			}
+
+			Channel &channel = channels[args[1]];
+
+			if (!channel.has_user(pfd))
+			{
+				not_on_channel(pfd, args[1]);
+				return;
+			}
+
+			broadcast_message(channel, ":" + user.get_hostmask() + " PART " + args[1] + " " + join(args.begin() + 2, args.end(), " "));
+
+			channel.remove_user(pfd);
+		}
+		else if (args[0] == "PING")
+		{
+			std::string message = join(args.begin() + 1, args.end(), " ");
+
+			send_message(pfd, ":" + name + " PONG " + name + " :" + message);
+		}
+		else if (args[0] == "OPER")
+		{
+			if (args.size() < 3)
+			{
+				need_more_params(pfd, args[0]);
+				return;
+			}
+
+			bool authenticated = args[1] == operator_username && args[2] == operator_password;
+			if (authenticated)
+			{
+				users[pfd.fd].set_status(OPERATOR);
+				send_message(pfd, ":" + name + " " + c(RPL_YOUREOPER) + " " + user.get_nick() + " :You are now an IRC operator");
+			}
+			else
+			{
+				send_message(pfd, ":" + name + " " + c(ERR_PASSWDMISMATCH) + " " + user.get_nick() + " :Password incorrect");
+			}
+			
 		}
 	}
 
@@ -466,10 +608,27 @@ public:
 
 	void send_message(pollfd &pfd, const std::string &message)
 	{
-		std::cout << GREEN << "Sending to " << RESET << pfd.fd << GREEN ": `" RESET << escape(message) << GREEN "`" RESET << std::endl;
-		std::string ircmsg(message + "\r\n");
-		send(pfd.fd, ircmsg.c_str(), ircmsg.length(), 0);
+		send_message(pfd.fd, message);
 	}
+
+	void send_message(int fd, const std::string &message)
+	{
+		std::cout << GREEN << "Sending to " << RESET << fd << GREEN ": `" RESET << escape(message) << GREEN "`" RESET << std::endl;
+		std::string ircmsg(message + "\r\n");
+		send(fd, ircmsg.c_str(), ircmsg.length(), 0);
+	}
+
+	void broadcast_message(Channel & channel, const std::string &message, User *except = NULL)
+	{
+		std::cout << BLUE << "Broadcasting to " << RESET << channel.get_name() << BLUE ": `" RESET << escape(message) << BLUE "`" RESET << std::endl;
+		std::string ircmsg(message + "\r\n");
+		for (std::map<int, User *>::iterator it = channel.get_users().begin(); it != channel.get_users().end(); ++it)
+		{
+			if (it->second != except)
+				send(it->first, ircmsg.c_str(), ircmsg.length(), 0);
+		}
+	}
+
 
 	static pollfd make_pfd(int fd, int events, int revents)
 	{
@@ -497,12 +656,16 @@ public:
 		}
 	}
 
-	User *find_user_by_nickname(const std::string &nickname)
+	User *find_user_by_nickname(const std::string &nickname, int *fd = NULL)
 	{
 		for (std::map<int, User>::iterator it = users.begin(); it != users.end(); ++it)
 		{
 			if (it->second.get_nick() == nickname)
+			{
+				if (fd != NULL)
+					*fd = it->first;
 				return &it->second;
+			}
 		}
 		return NULL;
 	}
@@ -515,6 +678,16 @@ public:
 	void no_such_channel(pollfd &pfd, const std::string &channel)
 	{
 		send_message(pfd, ":" + name + " " + c(ERR_NOSUCHCHANNEL) + " " + users[pfd.fd].get_nick() + " " + channel + " :No such channel");
+	}
+
+	void not_on_channel(pollfd &pfd, const std::string &channel)
+	{
+		send_message(pfd, ":" + name + " " + c(ERR_NOTONCHANNEL) + " " + users[pfd.fd].get_nick() + " " + channel + " :You're not on that channel");
+	}
+
+	void no_such_nick(pollfd &pfd, const std::string &nickname)
+	{
+		send_message(pfd, ":" + name + " " + c(ERR_NOSUCHNICK) + " " + users[pfd.fd].get_nick() + " " + nickname + " :No such nick/channel");
 	}
 };
 
