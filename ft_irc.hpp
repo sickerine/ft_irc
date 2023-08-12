@@ -35,7 +35,7 @@
 #define CHECK_ARGS(x) \
     if (args.size() < x) \
     { \
-        need_more_params(pfd, args[0]); \
+        need_more_params(fd, args[0]); \
         return; \
     }
 
