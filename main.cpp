@@ -83,10 +83,10 @@ private:
 	std::string datastream;
 	bool authenticated;
 	bool registered;
-	int status;
+	pollfd *pfd;
 
 public:
-	User() : authenticated(false), registered(false), status(REGULAR)
+	User() : authenticated(false), registered(false), pfd(NULL)
 	{
 		std::cout << "new user constructed" << std::endl;
 	}
@@ -114,15 +114,17 @@ public:
 	void set_registered(bool reg) { registered = reg; }
 	bool get_registered() { return registered; }
 
-	void set_status(int s) { status = s; }
-	int get_status() { return status; }
-
 	void append_data(const std::string &data) { datastream += data; }
 	std::string &get_data() { return datastream; }
 
-	std::string get_prefixed_nick()
+	void set_pfd(pollfd *pfd) { this->pfd = pfd; }
+	pollfd *get_pfd() { return pfd; }
+
+	std::string get_prefixed_nick(UserList &operators, pollfd &pfd)
 	{
-		return std::string(status == OPERATOR ? "@" : "") + nickname;
+		if (operators.find(pfd.fd) != operators.end())
+			return "@" + nickname;
+		return nickname;
 	}
 
 	std::string who_this()
@@ -143,7 +145,8 @@ private:
 	std::string name;
 	std::string key;
 	std::string topic;
-	std::map<int, User *> users;
+	UserList users;
+	UserList operators;
 
 public:
 	Channel() {}
@@ -152,11 +155,11 @@ public:
 
 	}
 
-	int add_user(pollfd &pfd, User &user, const std::string &key)
+	int add_user(pollfd &pfd, User *user, const std::string &key)
 	{
 		if (this->key != key)
 			return ERR_BADCHANNELKEY;
-		users[pfd.fd] = &user;
+		users[pfd.fd] = user;
 		return 0;
 	}
 
@@ -175,14 +178,14 @@ public:
 	const std::string &get_topic() { return topic; }
 	void set_topic(const std::string &t) { topic = t; }
 
-	std::map<int, User *> &get_users() { return users; }
+	UserList &get_users() { return users; }
 
 	std::string get_users_list()
 	{
 		std::string list;
-		for (std::map<int, User *>::iterator it = users.begin(); it != users.end(); it++)
+		for (UserList::iterator it = users.begin(); it != users.end(); it++)
 		{
-			list += it->second->get_prefixed_nick() + " ";
+			list += it->second->get_prefixed_nick(operators, *it->second->get_pfd()) + " ";
 		}
 		return list;
 	}
@@ -190,18 +193,18 @@ public:
 	std::vector<std::string> get_who_list()
 	{
 		std::vector<std::string> list;
-		for (std::map<int, User *>::iterator it = users.begin(); it != users.end(); it++)
+		for (UserList::iterator it = users.begin(); it != users.end(); it++)
 		{
 			list.push_back(it->second->who_this());
 		}
 		return list;
 	}
 
-	bool has_user(User &user)
+	bool has_user(User *user)
 	{
-		for (std::map<int, User *>::iterator it = users.begin(); it != users.end(); it++)
+		for (UserList::iterator it = users.begin(); it != users.end(); it++)
 		{
-			if (it->second == &user)
+			if (it->second == user)
 				return true;
 		}
 		return false;
@@ -211,7 +214,33 @@ public:
 	{
 		return users.find(pfd.fd) != users.end();
 	}
-	
+
+	bool is_operator(User *user)
+	{
+		for (UserList::iterator it = operators.begin(); it != operators.end(); it++)
+		{
+			if (it->second == user)
+				return true;
+		}
+		return false;
+	}
+
+	bool is_operator(pollfd &pfd)
+	{
+		return operators.find(pfd.fd) != operators.end();
+	}
+
+	int add_operator(User *user)
+	{
+		operators[user->get_pfd()->fd] = user;
+		return 0;
+	}
+
+	int remove_operator(pollfd &pfd)
+	{
+		operators.erase(pfd.fd);
+		return 0;
+	}
 };
 
 class Server
@@ -222,7 +251,8 @@ private:
 	addrinfo *info;
 	int server_fd;
 	std::vector<pollfd> fds;
-	std::map<int, User> users;
+	UserList users;
+	UserList operators;
 	bool running;
 	std::string host;
 	std::map<std::string, Channel> channels;
@@ -258,6 +288,8 @@ public:
 	{
 		if (info)
 			freeaddrinfo(info);
+		// for (UserList::iterator it = users.begin(); it != users.end(); ++it)
+		// 	delete it->second;
 	}
 
 	void create_channel(const std::string &name, const std::string &key, const std::string &topic)
@@ -287,10 +319,10 @@ public:
 			new_fd = accept(server_fd, &addr, &len);
 			if (new_fd == -1)
 				break;
-
 			fds.push_back(make_pfd(new_fd, POLLIN, 0));
-			users[new_fd] = User();
-			users[new_fd].set_host(addr);
+			users[new_fd] = new User();
+			users[new_fd]->set_pfd(&fds.back());
+			users[new_fd]->set_host(addr);
 			std::cout << "Connection accepted on fd " << new_fd << std::endl;
 		}
 	}
@@ -306,27 +338,27 @@ public:
 				break;
 
 			buffer[length] = 0;
-			users[pfd.fd].append_data(std::string(buffer));
+			users[pfd.fd]->append_data(std::string(buffer));
 		}
 	}
 
 	void welcome(pollfd &pfd)
 	{
-		send_message(pfd, ":" + name + " " + c(RPL_WELCOME) + " " + users[pfd.fd].get_nick() + " :kys " + users[pfd.fd].get_nick() + "!" + users[pfd.fd].get_user() + "@" + name);
-		send_message(pfd, ":" + name + " " + c(RPL_STARTOFMOTD) + " " + users[pfd.fd].get_user() + " :- " + name + " Message of the Day -");
-		send_message(pfd, ":" + name + " " + c(RPL_MOTD) + " " + users[pfd.fd].get_nick() + " :- LOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLO");
-		send_message(pfd, ":" + name + " " + c(RPL_ENDOFMOTD) + " " + users[pfd.fd].get_user() + " :End of /MOTD command.");
+		send_message(pfd, ":" + name + " " + c(RPL_WELCOME) + " " + users[pfd.fd]->get_nick() + " :kys " + users[pfd.fd]->get_nick() + "!" + users[pfd.fd]->get_user() + "@" + name);
+		send_message(pfd, ":" + name + " " + c(RPL_STARTOFMOTD) + " " + users[pfd.fd]->get_user() + " :- " + name + " Message of the Day -");
+		send_message(pfd, ":" + name + " " + c(RPL_MOTD) + " " + users[pfd.fd]->get_nick() + " :- LOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLO");
+		send_message(pfd, ":" + name + " " + c(RPL_ENDOFMOTD) + " " + users[pfd.fd]->get_user() + " :End of /MOTD command.");
 	}
 
 	void parse_command(pollfd &pfd, const std::string &cmd)
 	{
-		User &user = users[pfd.fd];
+		User *user = users[pfd.fd];
 		std::vector<std::string> args = split(cmd, ' ', true);
 
 		if (args.size() < 1)
 			return;
 
-		if (!user.get_auth())
+		if (!user->get_auth())
 		{
 			if (args[0] == "PASS")
 			{
@@ -334,7 +366,7 @@ public:
 				if (args[1] == password)
 				{
 					std::cout << "yes" << std::endl;
-					user.set_auth(true);
+					user->set_auth(true);
 				}
 				else
 					std::cout << "no" << std::endl;
@@ -352,13 +384,13 @@ public:
 				need_more_params(pfd, args[0]);
 				return;
 			}
-			user.set_user(args[1]);
-			user.set_real(join(args.begin() + 4, args.end(), " "));
+			user->set_user(args[1]);
+			user->set_real(join(args.begin() + 4, args.end(), " "));
 			welcome(pfd);
 		}
 		else if (args[0] == "NICK")
 		{
-			if (user.get_nick() == args[1])
+			if (user->get_nick() == args[1])
 				return;
 
 			bool taken = find_user_by_nickname(args[1]) != NULL;
@@ -367,17 +399,17 @@ public:
 				send_message(pfd, ":" + name + " " + c(ERR_NICKNAMEINUSE) + " " + args[1] + " :" + args[1]);
 				return;
 			}
-			user.set_nick(args[1]);
-			if (user.get_registered())
+			user->set_nick(args[1]);
+			if (user->get_registered())
 				send_message(pfd, ":" + name + " NICK " + args[1]);
-			user.set_registered(true);
+			user->set_registered(true);
 		}
 		else if (args[0] == "LIST")
 		{
-			send_message(pfd, ":" + name + " " + c(RPL_LISTSTART) + " " + user.get_nick() + " Channel :Users Name");
+			send_message(pfd, ":" + name + " " + c(RPL_LISTSTART) + " " + user->get_nick() + " Channel :Users Name");
 			for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); it++)
-				send_message(pfd, ":" + name + " " + c(RPL_LIST) + " " + user.get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :" + it->second.get_topic());
-			send_message(pfd, ":" + name + " " + c(RPL_LISTEND) + " " + user.get_nick() + " :End of /LIST");
+				send_message(pfd, ":" + name + " " + c(RPL_LIST) + " " + user->get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :" + it->second.get_topic());
+			send_message(pfd, ":" + name + " " + c(RPL_LISTEND) + " " + user->get_nick() + " :End of /LIST");
 		}
 		else if (args[0] == "QUIT")
 		{
@@ -413,13 +445,13 @@ public:
 					Channel &channel = channels[params[i]];
 					int ret = channel.add_user(pfd, user, channel_key);
 					if (ret == ERR_BADCHANNELKEY)
-						send_message(pfd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user.get_nick() + " " + params[i] + " :Cannot join channel (+k)");
+						send_message(pfd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
 					else
 					{
-						broadcast_message(channel, ":" + user.get_hostmask() + " JOIN :" + params[i]);
-						send_message(pfd, ":" + name + " " + c(RPL_TOPIC) + " " + user.get_nick() + " " + params[i] + " :" + channel.get_topic());
-						send_message(pfd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user.get_nick() + " = " + params[i] + " :" + channel.get_users_list());
-						send_message(pfd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user.get_nick() + " " + params[i] + " :End of /NAMES list");
+						broadcast_message(channel, ":" + user->get_hostmask() + " JOIN :" + params[i]);
+						send_message(pfd, ":" + name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
+						send_message(pfd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
+						send_message(pfd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
 					}
 				}
 				else
@@ -443,8 +475,8 @@ public:
 			std::vector<std::string> who_list = channels[args[1]].get_who_list();
 
 			for (size_t i = 0; i < who_list.size(); i++)
-				send_message(pfd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user.get_nick() + " " + args[1] + "	 " + who_list[i]);
-			send_message(pfd, ":" + name + " " + c(RPL_ENDOFWHO) + " " + user.get_nick() + " " + args[1] + " :End of /WHO list");
+				send_message(pfd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user->get_nick() + " " + args[1] + "	 " + who_list[i]);
+			send_message(pfd, ":" + name + " " + c(RPL_ENDOFWHO) + " " + user->get_nick() + " " + args[1] + " :End of /WHO list");
 		}
 		else if (args[0] == "PRIVMSG")
 		{
@@ -471,7 +503,7 @@ public:
 					return;
 				}
 
-				broadcast_message(channel, ":" + user.get_hostmask() + " PRIVMSG " + args[1] + " " + message, &users[pfd.fd]);
+				broadcast_message(channel, ":" + user->get_hostmask() + " PRIVMSG " + args[1] + " " + message, users[pfd.fd]);
 			}
 			else
 			{
@@ -498,7 +530,7 @@ public:
 			{
 				if (channels.find(args[1]) == channels.end())
 				{
-					send_message(pfd, ":" + name + " " + c(RPL_NOWOFF) + " " + user.get_nick() + " " + args[1] + " :" + args[1] + " * * 0 is offline");
+					send_message(pfd, ":" + name + " " + c(RPL_NOWOFF) + " " + user->get_nick() + " " + args[1] + " :" + args[1] + " * * 0 is offline");
 					return;
 				}
 			}
@@ -511,7 +543,7 @@ public:
 					return;
 				}
 			}
-			send_message(pfd, ":" + name + " " + c(RPL_ISON) + " " + user.get_nick() + " :");
+			send_message(pfd, ":" + name + " " + c(RPL_ISON) + " " + user->get_nick() + " :");
 		}
 		else if (args[0] == "PART")
 		{
@@ -535,7 +567,7 @@ public:
 				return;
 			}
 
-			broadcast_message(channel, ":" + user.get_hostmask() + " PART " + args[1] + " " + join(args.begin() + 2, args.end(), " "));
+			broadcast_message(channel, ":" + user->get_hostmask() + " PART " + args[1] + " " + join(args.begin() + 2, args.end(), " "));
 
 			channel.remove_user(pfd);
 		}
@@ -556,20 +588,121 @@ public:
 			bool authenticated = args[1] == operator_username && args[2] == operator_password;
 			if (authenticated)
 			{
-				users[pfd.fd].set_status(OPERATOR);
-				send_message(pfd, ":" + name + " " + c(RPL_YOUREOPER) + " " + user.get_nick() + " :You are now an IRC operator");
+				operators[pfd.fd] = user;
+				send_message(pfd, ":" + name + " " + c(RPL_YOUREOPER) + " " + user->get_nick() + " :You are now an IRC operator");
 			}
 			else
 			{
-				send_message(pfd, ":" + name + " " + c(ERR_PASSWDMISMATCH) + " " + user.get_nick() + " :Password incorrect");
+				send_message(pfd, ":" + name + " " + c(ERR_PASSWDMISMATCH) + " " + user->get_nick() + " :Password incorrect");
 			}
-			
+		}
+		else if (args[0] == "KICK")
+		{
+			// if (args.size() < 3)
+			// {	
+			// 	need_more_params(pfd, args[0]);
+			// 	return;
+			// }
+
+			// if (channels.find(args[1]) == channels.end())
+			// {
+			// 	no_such_channel(pfd, args[1]);
+			// 	return;
+			// }
+
+			// Channel &channel = channels[args[1]];
+
+			// if (!channel.has_user(pfd))
+			// {
+			// 	not_on_channel(pfd, args[1]);
+			// 	return;
+			// }
+
+			// if (!channel.has_user(args[2]))
+			// {
+			// 	no_such_nick(pfd, args[2]);
+			// 	return;
+			// }
+
+			// if (!channel.is_operator(pfd))
+			// {
+			// 	send_message(pfd, ":" + name + " " + c(ERR_CHANOPRIVSNEEDED) + " " + user->get_nick() + " " + args[1] + " :You're not channel operator");
+			// 	return;
+			// }
+		}
+		else if (args[0] == "MODE")
+		{
+			CHECK_ARGS(2);
+
+			if (channels.find(args[1]) == channels.end())
+			{
+				no_such_channel(pfd, args[1]);
+				return;
+			}
+
+			Channel &channel = channels[args[1]];
+
+			if (!channel.has_user(pfd))
+			{
+				not_on_channel(pfd, args[1]);
+				return;
+			}
+
+			if (args.size() == 2)
+			{
+				send_message(pfd, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +nt");
+				return ;
+			}
+
+			char operation = args[2][0];
+
+			if (operation != '+' && operation != '-')
+			{
+				send_message(pfd, ":" + name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2] + " :retard");
+				return;
+			}
+
+			int mode = 0;
+			bool err = false;
+			for (size_t i = 1; i < args[2].length(); i++)
+			{
+				switch (args[2][i]) {
+				SET_MODE_OR_ERR('i', MODE_INVITEONLY);
+				SET_MODE_OR_ERR('t', MODE_TOPIC);
+				SET_MODE_OR_ERR('k', MODE_KEY);
+				SET_MODE_OR_ERR('o', MODE_OPERATOR);
+				SET_MODE_OR_ERR('l', MODE_LIMIT);
+				default: err = true; break; }
+				if (err) {
+					send_message(pfd, ":" + name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
+					return;
+				}
+			}
+
+			if (mode & MODE_OPERATOR)
+			{
+				CHECK_ARGS(4);
+				if (operation == '+' && (is_operator(pfd) || channel.is_operator(pfd)))
+				{
+					User *target = find_user_by_nickname(args[3]);
+					if (target)
+					{
+						if (channel.has_user(target))
+						{
+							channel.add_operator(target);
+							broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +o " + target->get_nick());
+						}
+						else
+							no_such_nick(pfd, args[3]);
+					}
+				}
+			}
 		}
 	}
 
 	void parse_data(pollfd &pfd)
 	{
-		std::istringstream iss(users[pfd.fd].get_data());
+		std::istringstream iss(users[pfd.fd]->get_data());
 		std::string line;
 
 		std::cout << RED "PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
@@ -582,7 +715,7 @@ public:
 				if (line.substr(line.length() - 1) == "\r")
 				{
 					parse_command(pfd, line);
-					users[pfd.fd].get_data().erase(0, line.length() + 1);
+					users[pfd.fd]->get_data().erase(0, line.length() + 1);
 				}
 				else
 					break;
@@ -592,7 +725,7 @@ public:
 				return;
 			}
 		}
-		std::cout << RED "AFTER PARSING DATA: " << escape(users[pfd.fd].get_data()) << RESET << std::endl;
+		std::cout << RED "AFTER PARSING DATA: " << escape(users[pfd.fd]->get_data()) << RESET << std::endl;
 	}
 
 	void process_events(pollfd &pfd)
@@ -622,7 +755,7 @@ public:
 	{
 		std::cout << BLUE << "Broadcasting to " << RESET << channel.get_name() << BLUE ": `" RESET << escape(message) << BLUE "`" RESET << std::endl;
 		std::string ircmsg(message + "\r\n");
-		for (std::map<int, User *>::iterator it = channel.get_users().begin(); it != channel.get_users().end(); ++it)
+		for (UserList::iterator it = channel.get_users().begin(); it != channel.get_users().end(); ++it)
 		{
 			if (it->second != except)
 				send(it->first, ircmsg.c_str(), ircmsg.length(), 0);
@@ -658,13 +791,13 @@ public:
 
 	User *find_user_by_nickname(const std::string &nickname, int *fd = NULL)
 	{
-		for (std::map<int, User>::iterator it = users.begin(); it != users.end(); ++it)
+		for (UserList::iterator it = users.begin(); it != users.end(); ++it)
 		{
-			if (it->second.get_nick() == nickname)
+			if (it->second->get_nick() == nickname)
 			{
 				if (fd != NULL)
 					*fd = it->first;
-				return &it->second;
+				return it->second;
 			}
 		}
 		return NULL;
@@ -672,22 +805,39 @@ public:
 
 	void need_more_params(pollfd &pfd, const std::string &command)
 	{
-		send_message(pfd, ":" + name + " " + c(ERR_NEEDMOREPARAMS) + " " + users[pfd.fd].get_nick() + " " + command + " :Not enough parameters");
+		send_message(pfd, ":" + name + " " + c(ERR_NEEDMOREPARAMS) + " " + users[pfd.fd]->get_nick() + " " + command + " :Not enough parameters");
 	}
 
 	void no_such_channel(pollfd &pfd, const std::string &channel)
 	{
-		send_message(pfd, ":" + name + " " + c(ERR_NOSUCHCHANNEL) + " " + users[pfd.fd].get_nick() + " " + channel + " :No such channel");
+		send_message(pfd, ":" + name + " " + c(ERR_NOSUCHCHANNEL) + " " + users[pfd.fd]->get_nick() + " " + channel + " :No such channel");
 	}
 
 	void not_on_channel(pollfd &pfd, const std::string &channel)
 	{
-		send_message(pfd, ":" + name + " " + c(ERR_NOTONCHANNEL) + " " + users[pfd.fd].get_nick() + " " + channel + " :You're not on that channel");
+		send_message(pfd, ":" + name + " " + c(ERR_NOTONCHANNEL) + " " + users[pfd.fd]->get_nick() + " " + channel + " :You're not on that channel");
 	}
 
 	void no_such_nick(pollfd &pfd, const std::string &nickname)
 	{
-		send_message(pfd, ":" + name + " " + c(ERR_NOSUCHNICK) + " " + users[pfd.fd].get_nick() + " " + nickname + " :No such nick/channel");
+		send_message(pfd, ":" + name + " " + c(ERR_NOSUCHNICK) + " " + users[pfd.fd]->get_nick() + " " + nickname + " :No such nick/channel");
+	}
+
+	bool is_operator(pollfd &pfd)
+	{
+		return operators.find(pfd.fd) != operators.end();
+	}
+
+	int add_operator(User *user)
+	{
+		operators[user->get_pfd()->fd] = user;
+		return 0;
+	}
+
+	int remove_operator(pollfd &pfd)
+	{
+		operators.erase(pfd.fd);
+		return 0;
 	}
 };
 

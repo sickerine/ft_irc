@@ -29,6 +29,28 @@
 
 #pragma endregion
 
+#define SET_MODE_OR_ERR(t, x) \
+    case t: if (mode & x)	{ err = true; break; } mode |= x; break;
+
+#define CHECK_ARGS(x) \
+    if (args.size() < x) \
+    { \
+        need_more_params(pfd, args[0]); \
+        return; \
+    }
+
+class User;
+
+typedef std::map<int, User *> UserList;
+
+enum {
+	MODE_INVITEONLY = 1 << 0,
+	MODE_TOPIC = 1 << 1,
+	MODE_KEY = 1 << 2,
+	MODE_OPERATOR = 1 << 3,
+	MODE_LIMIT = 1 << 4
+};
+
 enum
 {
 	RPL_WELCOME = 1,
@@ -53,6 +75,8 @@ enum
     RPL_ISON = 303,
     RPL_YOUREOPER = 381,
     ERR_PASSWDMISMATCH = 464,
+    RPL_CHANNELMODEIS = 324,
+    ERR_UNKNOWNMODE = 472,
 };
 
 enum {
