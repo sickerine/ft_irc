@@ -16,12 +16,14 @@
 #include <unistd.h>
 #include <vector>
 
+#include "utils.hpp"
+
 #define RED "\033[31m"
 #define GREEN "\033[32m"
 #define YELLOW "\033[33m"
 #define RESET "\033[0m"
 #define BLUE "\033[34m"
-
+#define PURPLE "\033[35m"
 
 #pragma region TODO
 
@@ -77,6 +79,7 @@ enum
     ERR_PASSWDMISMATCH = 464,
     RPL_CHANNELMODEIS = 324,
     ERR_UNKNOWNMODE = 472,
+    ERR_USERNOTINCHANNEL = 441,
 };
 
 enum {
