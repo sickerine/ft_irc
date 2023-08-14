@@ -3,8 +3,12 @@
 #include "User.hpp"
 
 Channel::Channel() {}
-Channel::Channel(const std::string &n, const std::string &k, const std::string &t) : name(n), key(k), topic(t)
+Channel::Channel(const std::string &n, const std::string &k, const std::string &t) : name(n), key(k), topic(t), mode(0)
 {
+    if (key != "")
+        mode |= MODE_KEY;
+    if (topic != "")
+        mode |= MODE_TOPIC;
 }
 
 int Channel::add_user(int fd, User *user, const std::string &key)
@@ -93,4 +97,22 @@ int Channel::remove_operator(User *user)
 {
     operators.erase(user->get_fd());
     return 0;
+}
+
+void Channel::set_mode(int mode) { this->mode = mode; }
+int Channel::get_mode() { return mode; }
+
+bool Channel::is_invited(User *user)
+{
+    return invited.find(user->get_fd()) != invited.end() || (mode & MODE_INVITEONLY) == 0;
+}
+
+void Channel::invite(User *user)
+{
+    invited[user->get_fd()] = user;
+}
+
+void Channel::remove_invite(User *user)
+{
+    invited.erase(user->get_fd());
 }

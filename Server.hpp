@@ -46,5 +46,6 @@ public:
 	bool is_operator(int fd);
 	int add_operator(User *user);
 	int remove_operator(User *user);
+	void channel_operator_privileges_needed(int fd, const std::string &channel);
 };
  

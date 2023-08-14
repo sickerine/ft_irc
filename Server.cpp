@@ -2,7 +2,7 @@
 #include "Channel.hpp"
 #include "User.hpp"
 
-Server::Server(const std::string &port, const std::string &pass) : password(pass), name("globalhost"), info(NULL), running(true), host("10.12.4.7"), operator_username("operator"), operator_password("password")
+Server::Server(const std::string &port, const std::string &pass) : password(pass), name("globalhost"), info(NULL), running(true), host("10.11.7.6"), operator_username("operator"), operator_password("password")
 {
     int on = 1;
     addrinfo hints = initialized<addrinfo>();
@@ -122,14 +122,11 @@ void Server::parse_command(int fd, const std::string &cmd)
     }
     else if (args[0] == "USER")
     {
-        if (args.size() < 5)
-        {
-            need_more_params(fd, args[0]);
-            return;
-        }
+        CHECK_ARGS(5);
         user->set_user(args[1]);
         user->set_real(join(args.begin() + 4, args.end(), " "));
-        welcome(fd);
+        if (user->get_registered())
+            welcome(fd);
     }
     else if (args[0] == "NICK")
     {
@@ -146,6 +143,8 @@ void Server::parse_command(int fd, const std::string &cmd)
         if (user->get_registered())
             send_message(fd, ":" + name + " NICK " + args[1]);
         user->set_registered(true);
+        if (user->get_user() != "")
+            welcome(fd);
     }
     else if (args[0] == "LIST")
     {
@@ -161,11 +160,7 @@ void Server::parse_command(int fd, const std::string &cmd)
     }
     else if (args[0] == "JOIN")
     {
-        if (args.size() < 2)
-        {
-            need_more_params(fd, args[0]);
-            return;
-        }
+        CHECK_ARGS(2);
 
         std::vector<std::string> params = split(args[1], ',');
 
@@ -186,16 +181,22 @@ void Server::parse_command(int fd, const std::string &cmd)
             if (channels.find(params[i]) != channels.end())
             {
                 Channel &channel = channels[params[i]];
-                int ret = channel.add_user(fd, user, channel_key);
-                if (ret == ERR_BADCHANNELKEY)
-                    send_message(fd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
-                else
+                if (channel.is_invited(user))
                 {
-                    broadcast_message(channel, ":" + user->get_hostmask(user->get_prefixed_nick(channel.get_users())) + " JOIN :" + params[i]);
-                    send_message(fd, ":" + name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
-                    send_message(fd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
-                    send_message(fd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
+                    int ret = channel.add_user(fd, user, channel_key);
+                    if (ret == ERR_BADCHANNELKEY)
+                        send_message(fd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
+                    else
+                    {
+                        channel.remove_invite(user);
+                        broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " JOIN :" + params[i]);
+                        send_message(fd, ":" + name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
+                        send_message(fd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
+                        send_message(fd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
+                    }
                 }
+                else
+                    send_message(fd, ":" + name + " " + c(ERR_INVITEONLYCHAN) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+i)");
             }
             else
                 no_such_channel(fd, params[i]);
@@ -203,11 +204,7 @@ void Server::parse_command(int fd, const std::string &cmd)
     }
     else if (args[0] == "WHO")
     {
-        if (args.size() < 2)
-        {
-            need_more_params(fd, args[0]);
-            return;
-        }
+        CHECK_ARGS(2);
 
         if (channels.find(args[1]) == channels.end())
         {
@@ -218,7 +215,7 @@ void Server::parse_command(int fd, const std::string &cmd)
         std::vector<std::string> who_list = channels[args[1]].get_who_list();
 
         for (size_t i = 0; i < who_list.size(); i++)
-            send_message(fd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user->get_nick() + " " + args[1] + "	 " + who_list[i]);
+            send_message(fd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user->get_nick() + " " + args[1] + " " + who_list[i]);
         send_message(fd, ":" + name + " " + c(RPL_ENDOFWHO) + " " + user->get_nick() + " " + args[1] + " :End of /WHO list");
     }
     else if (args[0] == "PRIVMSG")
@@ -289,19 +286,9 @@ void Server::parse_command(int fd, const std::string &cmd)
     }
     else if (args[0] == "PART")
     {
-        if (args.size() < 3)
-        {
-            need_more_params(fd, args[0]);
-            return;
-        }
+        CHECK_ARGS(3);
 
-        if (channels.find(args[1]) == channels.end())
-        {
-            no_such_channel(fd, args[1]);
-            return;
-        }
-
-        Channel &channel = channels[args[1]];
+        CHECK_CHANNEL(args[1]);
 
         if (!channel.has_user(fd))
         {
@@ -309,7 +296,7 @@ void Server::parse_command(int fd, const std::string &cmd)
             return;
         }
 
-        broadcast_message(channel, ":" + user->get_hostmask(user->get_prefixed_nick(channel.get_users())) + " PART " + args[1] + " " + join(args.begin() + 2, args.end(), " "));
+        broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " PART " + args[1] + " " + join(args.begin() + 2, args.end(), " "));
 
         channel.remove_user(fd);
     }
@@ -321,11 +308,7 @@ void Server::parse_command(int fd, const std::string &cmd)
     }
     else if (args[0] == "OPER")
     {
-        if (args.size() < 3)
-        {
-            need_more_params(fd, args[0]);
-            return;
-        }
+        CHECK_ARGS(3);
 
         bool authenticated = args[1] == operator_username && args[2] == operator_password;
         if (authenticated)
@@ -333,7 +316,7 @@ void Server::parse_command(int fd, const std::string &cmd)
             operators[fd] = user;
             user->set_server_operator(true);
             send_message(fd, ":" + name + " " + c(RPL_YOUREOPER) + " " + user->get_nick() + " :You are now an IRC operator");
-            server_broadcast_message(":" + user->get_hostmask(user->get_prefixed_nick()) + " MODE " + user->get_nick() + " +o");
+            server_broadcast_message(":" + name + " MODE " + user->get_nick() + " :+o");
         }
         else
         {
@@ -374,17 +357,50 @@ void Server::parse_command(int fd, const std::string &cmd)
         // 	return;
         // }
     }
+    else if (args[0] == "INVITE")
+    {
+        // >> :mcharrad!mcharrad@197.230.24.20 INVITE mcharrad_ :#uwu
+
+        CHECK_ARGS(3);
+
+        CHECK_CHANNEL(args[2]);
+
+        if (!channel.has_user(fd))
+        {
+            not_on_channel(fd, args[2]);
+            return;
+        }
+
+        User *target = find_user_by_nickname(args[1]);
+
+        if (target == NULL)
+        {
+            no_such_nick(fd, args[1]);
+            return;
+        }
+
+        std::cout << "target: " << target->get_nick() << std::endl;
+
+        if (channel.is_operator(fd) || is_operator(fd))
+        {
+            if (channel.has_user(target->get_fd()))
+            {
+                send_message(fd, ":" + name + " " + c(ERR_USERONCHANNEL) + " " + user->get_nick() + " " + args[1] + " " + args[2] + " :is already on channel");
+                return;
+            }
+            send_message(target->get_fd(), ":" + user->get_hostmask(user->get_nick()) + " INVITE " + target->get_nick() + " " + args[2]);
+            send_message(fd, ":" + name + " " + c(RPL_INVITING) + " " + user->get_nick() + " " + args[1] + " " + args[2]);
+            channel.invite(target);
+        }
+        else
+            channel_operator_privileges_needed(fd, channel.get_name());
+
+    }
     else if (args[0] == "MODE")
     {
         CHECK_ARGS(2);
 
-        if (channels.find(args[1]) == channels.end())
-        {
-            no_such_channel(fd, args[1]);
-            return;
-        }
-
-        Channel &channel = channels[args[1]];
+        CHECK_CHANNEL(args[1]);
 
         if (!channel.has_user(fd))
         {
@@ -413,8 +429,9 @@ void Server::parse_command(int fd, const std::string &cmd)
             switch (args[2][i]) {
             SET_MODE_OR_ERR('i', MODE_INVITEONLY);
             SET_MODE_OR_ERR('t', MODE_TOPIC);
-            SET_MODE_OR_ERR('k', MODE_KEY);
+            
             SET_MODE_OR_ERR('o', MODE_OPERATOR);
+            SET_MODE_OR_ERR('k', MODE_KEY);
             SET_MODE_OR_ERR('l', MODE_LIMIT);
             default: err = true; break; }
             if (err) {
@@ -423,6 +440,19 @@ void Server::parse_command(int fd, const std::string &cmd)
             }
         }
 
+        if (mode & MODE_INVITEONLY)
+        {
+            if (is_operator(fd) || channel.is_operator(fd))
+            {
+                if (operation == '+')
+                    channel.set_mode(channel.get_mode() | MODE_INVITEONLY);
+                else
+                    channel.set_mode(channel.get_mode() & ~MODE_INVITEONLY);
+                broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
+            }
+            else
+                channel_operator_privileges_needed(fd, channel.get_name());
+        }
         if (mode & MODE_OPERATOR)
         {
             CHECK_ARGS(4);
@@ -434,15 +464,10 @@ void Server::parse_command(int fd, const std::string &cmd)
                     if (channel.has_user(target))
                     {
                         if (operation == '+')
-                        {
                             channel.add_operator(target);
-                            broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +o " + target->get_nick());
-                        }
                         else if (operation == '-')
-                        {
                             channel.remove_operator(target);
-                            broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " -o " + target->get_nick());
-                        }
+                        broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
                     }
                     else
                         user_not_in_channel(fd, args[3], channel.get_name());
@@ -450,6 +475,8 @@ void Server::parse_command(int fd, const std::string &cmd)
                 else
                     no_such_nick(fd, args[3]);
             }
+            else
+                channel_operator_privileges_needed(fd, channel.get_name());
         }
     }
 }
@@ -464,8 +491,8 @@ void Server::parse_data(int fd)
     while (std::getline(iss, line))
     {
         std::cout << YELLOW << "Received from " << RESET << fd << YELLOW ": `" RESET << escape(line) << YELLOW "`" RESET << std::endl;
-        // try
-        // {
+        try
+        {
             if (line.substr(line.length() - 1) == "\r")
             {
                 parse_command(fd, line);
@@ -473,11 +500,11 @@ void Server::parse_data(int fd)
             }
             else
                 break;
-        // }
-        // catch (...)
-        // {
-        //     return;
-        // }
+        }
+        catch (...)
+        {
+            return;
+        }
     }
     std::cout << RED "AFTER PARSING DATA: " << escape(users[fd]->get_data()) << RESET << std::endl;
 }
@@ -581,6 +608,11 @@ void Server::no_such_nick(int fd, const std::string &nickname)
 void Server::user_not_in_channel(int fd, const std::string &nickname, const std::string &channel)
 {
     send_message(fd, ":" + name + " " + c(ERR_USERNOTINCHANNEL) + " " + users[fd]->get_nick() + " " + nickname + " " + channel + " :They aren't on that channel");
+}
+
+void Server::channel_operator_privileges_needed(int fd, const std::string &channel)
+{
+    send_message(fd, ":" + name + " " + c(ERR_CHANOPRIVSNEEDED) + " " + users[fd]->get_nick() + " " + channel + " :You're not channel operator");
 }
 
 bool Server::is_operator(int fd)

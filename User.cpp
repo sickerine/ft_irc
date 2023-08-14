@@ -42,16 +42,16 @@ void User::set_server_operator(bool op) { server_operator = op; }
 std::string User::get_prefixed_nick()
 {
     std::string prefix = "";
-    if (server_operator == true)
-        prefix += "&";
+    // if (server_operator == true)
+    //     prefix += "&";
     return prefix + nickname;
 }
 
 std::string User::get_prefixed_nick(UserList &operators)
 {
     std::string prefix = "";
-    if (server_operator == true)
-        prefix += "&";
+    // if (server_operator == true)
+    //     prefix += "&";
     if (operators.find(fd) != operators.end())
         prefix += "@";
     return prefix + nickname;

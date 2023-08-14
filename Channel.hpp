@@ -12,8 +12,10 @@ private:
 	std::string name;
 	std::string key;
 	std::string topic;
+	int mode;
 	UserList users;
 	UserList operators;
+	UserList invited;
 
 public:
 	Channel();
@@ -25,6 +27,9 @@ public:
 
 	const std::string &get_topic();
 	void set_topic(const std::string &t);
+
+	void set_mode(int mode);
+	int get_mode();
 
 	UserList &get_users();
 
@@ -43,4 +48,10 @@ public:
 	int add_operator(User *user);
 
 	int remove_operator(User *user);
+
+	bool is_invited(User *user);
+
+	void invite(User *user);
+
+	void remove_invite(User *user);
 };

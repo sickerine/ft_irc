@@ -41,6 +41,14 @@
         return; \
     }
 
+#define CHECK_CHANNEL(x) \
+    if (channels.find(x) == channels.end()) \
+    { \
+        no_such_channel(fd, x); \
+        return; \
+    } \
+    Channel &channel = channels[x]; \
+
 class User;
 
 typedef std::map<int, User *> UserList;
@@ -80,6 +88,10 @@ enum
     RPL_CHANNELMODEIS = 324,
     ERR_UNKNOWNMODE = 472,
     ERR_USERNOTINCHANNEL = 441,
+    ERR_CHANOPRIVSNEEDED = 482,
+    RPL_INVITING = 341,
+    ERR_USERONCHANNEL = 443,
+    ERR_INVITEONLYCHAN = 473,
 };
 
 enum {
