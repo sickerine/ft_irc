@@ -396,6 +396,32 @@ void Server::parse_command(int fd, const std::string &cmd)
             channel_operator_privileges_needed(fd, channel.get_name());
 
     }
+    else if (args[0] == "TOPIC")
+    {
+        CHECK_ARGS(2);
+
+        CHECK_CHANNEL(args[1]);
+
+        if (!channel.has_user(fd))
+        {
+            not_on_channel(fd, args[1]);
+            return;
+        }
+
+        if (args.size() == 2)
+        {
+            send_message(fd, ":" + name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + args[1] + " :" + channel.get_topic());
+            return;
+        }
+
+        if (channel.is_operator(fd) || is_operator(fd) || channel.get_mode() & MODE_TOPIC)
+        {
+            channel.set_topic(join(args.begin() + 2, args.end(), " ").substr(1));
+            broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " TOPIC " + args[1] + " :" + channel.get_topic());
+        }
+        else
+            channel_operator_privileges_needed(fd, channel.get_name());
+    }
     else if (args[0] == "MODE")
     {
         CHECK_ARGS(2);
@@ -442,41 +468,45 @@ void Server::parse_command(int fd, const std::string &cmd)
 
         if (mode & MODE_INVITEONLY)
         {
-            if (is_operator(fd) || channel.is_operator(fd))
-            {
-                if (operation == '+')
-                    channel.set_mode(channel.get_mode() | MODE_INVITEONLY);
-                else
-                    channel.set_mode(channel.get_mode() & ~MODE_INVITEONLY);
-                broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
-            }
+            OPER_START();
+            if (operation == '+')
+                channel.set_mode(channel.get_mode() | MODE_INVITEONLY);
             else
-                channel_operator_privileges_needed(fd, channel.get_name());
+                channel.set_mode(channel.get_mode() & ~MODE_INVITEONLY);
+            broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
+            OPER_END();
         }
         if (mode & MODE_OPERATOR)
         {
             CHECK_ARGS(4);
-            if (is_operator(fd) || channel.is_operator(fd))
+            OPER_START();
+            User *target = find_user_by_nickname(args[3]);
+            if (target)
             {
-                User *target = find_user_by_nickname(args[3]);
-                if (target)
+                if (channel.has_user(target))
                 {
-                    if (channel.has_user(target))
-                    {
-                        if (operation == '+')
-                            channel.add_operator(target);
-                        else if (operation == '-')
-                            channel.remove_operator(target);
-                        broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
-                    }
-                    else
-                        user_not_in_channel(fd, args[3], channel.get_name());
+                    if (operation == '+')
+                        channel.add_operator(target);
+                    else if (operation == '-')
+                        channel.remove_operator(target);
+                    broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
                 }
                 else
-                    no_such_nick(fd, args[3]);
+                    user_not_in_channel(fd, args[3], channel.get_name());
             }
             else
-                channel_operator_privileges_needed(fd, channel.get_name());
+                no_such_nick(fd, args[3]);
+            OPER_END();
+        }
+        if (mode & MODE_TOPIC)
+        {
+            OPER_START();
+            if (operation == '+')
+                channel.set_mode(channel.get_mode() | MODE_TOPIC);
+            else
+                channel.set_mode(channel.get_mode() & ~MODE_TOPIC);
+            broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
+            OPER_END();
         }
     }
 }

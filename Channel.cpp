@@ -7,8 +7,6 @@ Channel::Channel(const std::string &n, const std::string &k, const std::string &
 {
     if (key != "")
         mode |= MODE_KEY;
-    if (topic != "")
-        mode |= MODE_TOPIC;
 }
 
 int Channel::add_user(int fd, User *user, const std::string &key)

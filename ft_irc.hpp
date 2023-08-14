@@ -47,7 +47,16 @@
         no_such_channel(fd, x); \
         return; \
     } \
-    Channel &channel = channels[x]; \
+    Channel &channel = channels[x];
+
+#define OPER_START() \
+    if (is_operator(fd) || channel.is_operator(fd)) \
+    { \
+
+#define OPER_END() \
+    } \
+    else \
+        channel_operator_privileges_needed(fd, channel.get_name()); \
 
 class User;
 
