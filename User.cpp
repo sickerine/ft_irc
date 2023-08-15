@@ -2,9 +2,8 @@
 #include "Channel.hpp"
 #include "Server.hpp"
 
-User::User() : authenticated(false), registered(false), fd(-1), server_operator(false)
+User::User() : registered(false), authenticated(false), server_operator(false), fd(-1)
 {
-    std::cout << "new user constructed" << std::endl;
 }
 
 User::~User()
@@ -19,7 +18,6 @@ const std::string &User::get_user() { return username; }
 
 void User::set_host(sockaddr &addr) { hostname = inet_ntoa(((sockaddr_in *)&addr)->sin_addr); }
 const std::string &User::get_host() { return hostname; }
-void User::set_host(const std::string &host) { hostname = host; }
 
 void User::set_real(const std::string &real) { realname = real; }
 const std::string &User::get_real() { return realname; }
@@ -39,30 +37,21 @@ int User::get_fd() { return fd; }
 bool User::is_server_operator() { return server_operator; }
 void User::set_server_operator(bool op) { server_operator = op; }
 
-std::string User::get_prefixed_nick()
-{
-    std::string prefix = "";
-    // if (server_operator == true)
-    //     prefix += "&";
-    return prefix + nickname;
-}
-
 std::string User::get_prefixed_nick(UserList &operators)
 {
-    std::string prefix = "";
-    // if (server_operator == true)
-    //     prefix += "&";
-    if (operators.find(fd) != operators.end())
-        prefix += "@";
-    return prefix + nickname;
+	std::string prefix = "";
+
+	if (operators.find(fd) != operators.end())
+		prefix += "@";
+	return prefix + nickname;
 }
 
 std::string User::who_this(Channel &channel)
 {
-    return username + " " + hostname + " * " + nickname + " H" + (server_operator ? "*" : "") + (channel.is_operator(this) ? "@" : "") + " :0 " + realname;
+	return username + " " + hostname + " * " + nickname + " H" + (server_operator ? "*" : "") + (channel.is_operator(this) ? "@" : "") + " :0 " + realname;
 }
 
 std::string User::get_hostmask(std::string prefixed_nick)
 {
-    return prefixed_nick + "!" + username + "@" + hostname;
+	return prefixed_nick + "!" + username + "@" + hostname;
 }

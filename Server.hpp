@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ft_irc.hpp"
+#include "IRCserver.hpp"
 
 class Channel;
 class User;
@@ -9,18 +9,22 @@ class Server;
 class Server
 {
 private:
-	std::string password;
+	std::string host;
 	std::string name;
+	std::string password;
+	std::string operator_username;
+	std::string operator_password;
+	bool running;
+
+	// TCP stuff
 	addrinfo *info;
 	int server_fd;
 	std::vector<pollfd> pfds;
+
+	// IRC stuff
 	UserList users;
 	UserList operators;
-	bool running;
-	std::string host;
 	std::map<std::string, Channel> channels;
-	std::string operator_username;
-	std::string operator_password;
 public:
 	Server(const std::string &port, const std::string &pass);
 	~Server();
@@ -45,7 +49,7 @@ public:
 	void user_not_in_channel(int fd, const std::string &nickname, const std::string &channel);
 	bool is_operator(int fd);
 	int add_operator(User *user);
-	int remove_operator(User *user);
+	void remove_operator(User *user);
 	void channel_operator_privileges_needed(int fd, const std::string &channel);
 };
  

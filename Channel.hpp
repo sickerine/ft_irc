@@ -1,10 +1,19 @@
 #pragma once
 
-#include "ft_irc.hpp"
+#include "IRCserver.hpp"
 
 class Channel;
 class User;
 class Server;
+
+enum
+{
+	MODE_INVITEONLY = 1 << 0,
+	MODE_TOPIC = 1 << 1,
+	MODE_KEY = 1 << 2,
+	MODE_OPERATOR = 1 << 3,
+	MODE_LIMIT = 1 << 4
+};
 
 class Channel
 {
@@ -20,38 +29,33 @@ private:
 public:
 	Channel();
 	Channel(const std::string &n, const std::string &k, const std::string &t);
-	int add_user(int fd, User *user, const std::string &key);
-	void remove_user(int fd);
+
 	const std::string &get_name();
-	std::string get_users_count();
+	void set_name(const std::string &n);
+
+	const std::string &get_key();
+	void set_key(const std::string &k);
 
 	const std::string &get_topic();
 	void set_topic(const std::string &t);
 
-	void set_mode(int mode);
 	int get_mode();
+	void set_mode(int mode);
+
+	int add_user(int fd, User *user, const std::string &key);
+	bool has_user(int fd);
+	void remove_user(int fd);
 
 	UserList &get_users();
-
 	std::string get_users_list();
-
+	std::string get_users_count();
 	std::vector<std::string> get_who_list();
 
-	bool has_user(User *user);
-
-	bool has_user(int fd);
-
-	bool is_operator(User *user);
-
-	bool is_operator(int fd);
-
 	int add_operator(User *user);
-
-	int remove_operator(User *user);
-
-	bool is_invited(User *user);
+	bool is_operator(User *user);
+	void remove_operator(User *user);
 
 	void invite(User *user);
-
+	bool is_invited(User *user);
 	void remove_invite(User *user);
 };

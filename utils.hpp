@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ft_irc.hpp"
+#include "IRCserver.hpp"
 
 template <typename T>
 T initialized()

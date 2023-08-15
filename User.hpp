@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ft_irc.hpp"
+#include "IRCserver.hpp"
 
 class Channel;
 class User;
@@ -14,14 +14,13 @@ private:
 	std::string hostname;
 	std::string realname;
 	std::string datastream;
-	bool authenticated;
 	bool registered;
-	int fd;
+	bool authenticated;
 	bool server_operator;
+	int fd;
 
 public:
 	User();
-
 	~User();
 
 	void set_nick(const std::string &nick);
@@ -32,7 +31,6 @@ public:
 
 	void set_host(sockaddr &addr);
 	const std::string &get_host();
-	void set_host(const std::string &host);
 
 	void set_real(const std::string &real);
 	const std::string &get_real();
@@ -52,11 +50,8 @@ public:
 	bool is_server_operator();
 	void set_server_operator(bool op);
 
-	std::string get_prefixed_nick();
-
 	std::string get_prefixed_nick(UserList &operators);
+	std::string get_hostmask(std::string prefixed_nick);
 
 	std::string who_this(Channel &channel);
-	
-	std::string get_hostmask(std::string prefixed_nick);
 };
