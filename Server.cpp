@@ -102,6 +102,34 @@ void Server::parse_command(int fd, const std::string &cmd)
 	if (args.size() < 1)
 		return;
 
+	struct {
+		std::string name;
+		int min_args;
+		bool reqauth;
+		bool reqreg;
+		bool reqop;
+	} arr[] = {
+		{ "PASS",		2,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "CAP",		2,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "PROTOCTL",	2,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "USER",		5,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "NICK",		2,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "LIST",		1,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "QUIT",		1,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "JOIN",		2,	.reqauth = true,	.reqreg = true,		.reqop = false },
+		{ "WHO",		2,	.reqauth = true,	.reqreg = true,		.reqop = false },
+		{ "PRIVMSG",	3,	.reqauth = true,	.reqreg = true,		.reqop = false },
+		{ "ISON",		2,	.reqauth = true,	.reqreg = true,		.reqop = false },
+		{ "PART",		3,	.reqauth = true,	.reqreg = true,		.reqop = false },
+		{ "PING",		2,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "OPER",		3,	.reqauth = false,	.reqreg = false,	.reqop = false },
+		{ "KICK",		3,	.reqauth = true,	.reqreg = true,		.reqop = true },
+		{ "INVITE",		3,	.reqauth = true,	.reqreg = true,		.reqop = true },
+		{ "TOPIC",		2,	.reqauth = true,	.reqreg = true,		.reqop = true },
+		{ "MODE",		2,	.reqauth = true,	.reqreg = true,		.reqop = true },
+		{ NULL,			0,	.reqauth = false,	.reqreg = false,	.reqop = false }
+	};
+
 	if (!user->get_auth())
 	{
 		if (args[0] == "PASS")
