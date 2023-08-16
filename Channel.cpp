@@ -3,7 +3,7 @@
 #include "User.hpp"
 
 Channel::Channel() {}
-Channel::Channel(const std::string &n, const std::string &k, const std::string &t) : name(n), key(k), topic(t), mode(0)
+Channel::Channel(const std::string &n, const std::string &k, const std::string &t) : name(n), key(k), topic(t), mode(0), limit(0)
 {
 	if (key != "")
 		mode |= MODE_KEY;
@@ -12,18 +12,27 @@ Channel::Channel(const std::string &n, const std::string &k, const std::string &
 const std::string &Channel::get_name() { return name; }
 void Channel::set_name(const std::string &n) { name = n; }
 
-const std::string &Channel::get_key() { return key; }
+const std::string &Channel::get_key()
+{
+	if ((mode & MODE_KEY) == 0)
+		key = "";
+	return key;
+}
 void Channel::set_key(const std::string &k) { key = k; }
 
 const std::string &Channel::get_topic() { return topic; }
 void Channel::set_topic(const std::string &t) { topic = t; }
 
 int Channel::get_mode() { return mode; }
+bool Channel::has_mode(int mode) { return this->mode & mode; }
 void Channel::set_mode(int mode) { this->mode = mode; }
+
+size_t Channel::get_limit() { return limit; }
+void Channel::set_limit(size_t limit) { this->limit = limit; }
 
 int Channel::add_user(int fd, User *user, const std::string &key)
 {
-	if (this->key != key)
+	if (get_key() != "" && get_key() != key)
 		return ERR_BADCHANNELKEY;
 	users[fd] = user;
 	return 0;
@@ -52,10 +61,7 @@ std::string Channel::get_users_list()
 
 std::string Channel::get_users_count()
 {
-	std::stringstream ss;
-
-	ss << users.size();
-	return ss.str();
+	return to_string(users.size());
 }
 
 std::vector<std::string> Channel::get_who_list()

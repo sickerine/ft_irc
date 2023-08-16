@@ -22,6 +22,7 @@ private:
 	std::string key;
 	std::string topic;
 	int mode;
+	size_t limit;
 	UserList users;
 	UserList operators;
 	UserList invited;
@@ -41,6 +42,10 @@ public:
 
 	int get_mode();
 	void set_mode(int mode);
+
+	size_t get_limit();
+	bool has_mode(int mode);
+	void set_limit(size_t limit);
 
 	int add_user(int fd, User *user, const std::string &key);
 	bool has_user(int fd);

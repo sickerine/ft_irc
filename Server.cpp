@@ -2,8 +2,7 @@
 #include "Channel.hpp"
 #include "User.hpp"
 
-Server::Server(const std::string &port, const std::string &pass) :
-	host("10.11.7.6"), name("globalhost"), password(pass), operator_username("operator"), operator_password("password"), running(true), info(NULL)
+Server::Server(const std::string &port, const std::string &pass) : host("10.11.7.4"), name("globalhost"), password(pass), operator_username("operator"), operator_password("password"), running(true), info(NULL)
 {
 	int on = 1;
 	addrinfo hints = initialized<addrinfo>();
@@ -102,33 +101,33 @@ void Server::parse_command(int fd, const std::string &cmd)
 	if (args.size() < 1)
 		return;
 
-	struct {
-		std::string name;
-		int min_args;
-		bool reqauth;
-		bool reqreg;
-		bool reqop;
-	} arr[] = {
-		{ "PASS",		2,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "CAP",		2,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "PROTOCTL",	2,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "USER",		5,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "NICK",		2,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "LIST",		1,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "QUIT",		1,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "JOIN",		2,	.reqauth = true,	.reqreg = true,		.reqop = false },
-		{ "WHO",		2,	.reqauth = true,	.reqreg = true,		.reqop = false },
-		{ "PRIVMSG",	3,	.reqauth = true,	.reqreg = true,		.reqop = false },
-		{ "ISON",		2,	.reqauth = true,	.reqreg = true,		.reqop = false },
-		{ "PART",		3,	.reqauth = true,	.reqreg = true,		.reqop = false },
-		{ "PING",		2,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "OPER",		3,	.reqauth = false,	.reqreg = false,	.reqop = false },
-		{ "KICK",		3,	.reqauth = true,	.reqreg = true,		.reqop = true },
-		{ "INVITE",		3,	.reqauth = true,	.reqreg = true,		.reqop = true },
-		{ "TOPIC",		2,	.reqauth = true,	.reqreg = true,		.reqop = true },
-		{ "MODE",		2,	.reqauth = true,	.reqreg = true,		.reqop = true },
-		{ NULL,			0,	.reqauth = false,	.reqreg = false,	.reqop = false }
-	};
+	// struct
+	// {
+	// 	std::string name;
+	// 	int min_args;
+	// 	bool reqauth;
+	// 	bool reqreg;
+	// 	bool reqop;
+	// } arr[] = {
+	// 	{"PASS", 2, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"CAP", 2, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"PROTOCTL", 2, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"USER", 5, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"NICK", 2, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"LIST", 1, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"QUIT", 1, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"JOIN", 2, .reqauth = true, .reqreg = true, .reqop = false},
+	// 	{"WHO", 2, .reqauth = true, .reqreg = true, .reqop = false},
+	// 	{"PRIVMSG", 3, .reqauth = true, .reqreg = true, .reqop = false},
+	// 	{"ISON", 2, .reqauth = true, .reqreg = true, .reqop = false},
+	// 	{"PART", 3, .reqauth = true, .reqreg = true, .reqop = false},
+	// 	{"PING", 2, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"OPER", 3, .reqauth = false, .reqreg = false, .reqop = false},
+	// 	{"KICK", 3, .reqauth = true, .reqreg = true, .reqop = true},
+	// 	{"INVITE", 3, .reqauth = true, .reqreg = true, .reqop = true},
+	// 	{"TOPIC", 2, .reqauth = true, .reqreg = true, .reqop = true},
+	// 	{"MODE", 2, .reqauth = true, .reqreg = true, .reqop = true},
+	// 	{NULL, 0, .reqauth = false, .reqreg = false, .reqop = false}};
 
 	if (!user->get_auth())
 	{
@@ -212,17 +211,22 @@ void Server::parse_command(int fd, const std::string &cmd)
 				Channel &channel = channels[params[i]];
 				if (channel.is_invited(user))
 				{
-					int ret = channel.add_user(fd, user, channel_key);
-					if (ret == ERR_BADCHANNELKEY)
-						send_message(fd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
-					else
+					if (!channel.has_mode(MODE_LIMIT) || channel.get_users().size() < channel.get_limit())
 					{
-						channel.remove_invite(user);
-						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " JOIN :" + params[i]);
-						send_message(fd, ":" + name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
-						send_message(fd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
-						send_message(fd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
+						int ret = channel.add_user(fd, user, channel_key);
+						if (ret == ERR_BADCHANNELKEY)
+							send_message(fd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
+						else
+						{
+							channel.remove_invite(user);
+							broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " JOIN :" + params[i]);
+							send_message(fd, ":" + name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
+							send_message(fd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
+							send_message(fd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
+						}
 					}
+					else
+						send_message(fd, ":" + name + " " + c(ERR_CHANNELISFULL) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+l)");
 				}
 				else
 					send_message(fd, ":" + name + " " + c(ERR_INVITEONLYCHAN) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+i)");
@@ -354,37 +358,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 	}
 	else if (args[0] == "KICK")
 	{
-		// if (args.size() < 3)
-		// {	
-		// 	need_more_params(fd, args[0]);
-		// 	return;
-		// }
-
-		// if (channels.find(args[1]) == channels.end())
-		// {
-		// 	no_such_channel(fd, args[1]);
-		// 	return;
-		// }
-
-		// Channel &channel = channels[args[1]];
-
-		// if (!channel.has_user(fd))
-		// {
-		// 	not_on_channel(fd, args[1]);
-		// 	return;
-		// }
-
-		// if (!channel.has_user(args[2]))
-		// {
-		// 	no_such_nick(fd, args[2]);
-		// 	return;
-		// }
-
-		// if (!channel.is_operator(fd))
-		// {
-		// 	send_message(fd, ":" + name + " " + c(ERR_CHANOPRIVSNEEDED) + " " + user->get_nick() + " " + args[1] + " :You're not channel operator");
-		// 	return;
-		// }
+		
 	}
 	else if (args[0] == "INVITE")
 	{
@@ -423,7 +397,6 @@ void Server::parse_command(int fd, const std::string &cmd)
 		}
 		else
 			channel_operator_privileges_needed(fd, channel.get_name());
-
 	}
 	else if (args[0] == "TOPIC")
 	{
@@ -443,7 +416,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 			return;
 		}
 
-		if (user->is_server_operator() || channel.is_operator(user) || channel.get_mode() & MODE_TOPIC)
+		if (user->is_server_operator() || channel.is_operator(user) || !channel.has_mode(MODE_TOPIC))
 		{
 			channel.set_topic(join(args.begin() + 2, args.end(), " ").substr(1));
 			broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " TOPIC " + args[1] + " :" + channel.get_topic());
@@ -465,8 +438,26 @@ void Server::parse_command(int fd, const std::string &cmd)
 
 		if (args.size() == 2)
 		{
-			send_message(fd, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +nt");
-			return ;
+			std::string modes = "n";
+			std::string values;
+
+			if (channel.has_mode(MODE_INVITEONLY))
+				modes += "i";
+			if (channel.has_mode(MODE_TOPIC))
+				modes += "t";
+			if (channel.has_mode(MODE_KEY))
+			{
+				modes += "k";
+				values += channel.get_key() + " ";
+			}
+			if (channel.has_mode(MODE_LIMIT))
+			{
+				modes += "l";
+				values += to_string(channel.get_limit());
+			}
+
+			send_message(fd, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +" + modes + " " + values);
+			return;
 		}
 
 		char operation = args[2][0];
@@ -479,63 +470,109 @@ void Server::parse_command(int fd, const std::string &cmd)
 
 		int mode = 0;
 		bool err = false;
+		size_t arg_idx = 3;
 		for (size_t i = 1; i < args[2].length(); i++)
 		{
-			switch (args[2][i]) {
-			SET_MODE_OR_ERR('i', MODE_INVITEONLY);
-			SET_MODE_OR_ERR('t', MODE_TOPIC);
-			
-			SET_MODE_OR_ERR('o', MODE_OPERATOR);
-			SET_MODE_OR_ERR('k', MODE_KEY);
-			SET_MODE_OR_ERR('l', MODE_LIMIT);
-			default: err = true; break; }
-			if (err) {
-				send_message(fd, ":" + name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
+			switch (args[2][i])
+			{
+				SET_MODE_OR_ERR('i', MODE_INVITEONLY);
+				SET_MODE_OR_ERR('t', MODE_TOPIC);
+
+				SET_MODE_OR_ERR('o', MODE_OPERATOR);
+				SET_MODE_OR_ERR('k', MODE_KEY);
+				SET_MODE_OR_ERR('l', MODE_LIMIT);
+			default:
+				err = true;
+				break;
+			}
+			if (err)
+			{
+				// send_message(fd, ":" + name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
 				return;
 			}
-		}
-
-		if (mode & MODE_INVITEONLY)
-		{
-			OPER_START();
-			if (operation == '+')
-				channel.set_mode(channel.get_mode() | MODE_INVITEONLY);
 			else
-				channel.set_mode(channel.get_mode() & ~MODE_INVITEONLY);
-			broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
-			OPER_END();
-		}
-		if (mode & MODE_OPERATOR)
-		{
-			CHECK_ARGS(4);
-			OPER_START();
-			User *target = find_user_by_nickname(args[3]);
-			if (target)
 			{
-				if (channel.has_user(target->get_fd()))
+				if (mode & MODE_INVITEONLY)
 				{
+					OPER_START();
 					if (operation == '+')
-						channel.add_operator(target);
-					else if (operation == '-')
-						channel.remove_operator(target);
-					broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
+						channel.set_mode(channel.get_mode() | MODE_INVITEONLY);
+					else
+						channel.set_mode(channel.get_mode() & ~MODE_INVITEONLY);
+					broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
+					OPER_END();
 				}
-				else
-					user_not_in_channel(fd, args[3], channel.get_name());
+				if (mode & MODE_OPERATOR)
+				{
+					OPER_START();
+					CHECK_ARGS(arg_idx + 1);
+					User *target = find_user_by_nickname(args[arg_idx]);
+					if (target)
+					{
+						if (channel.has_user(target->get_fd()))
+						{
+							if (operation == '+')
+								channel.add_operator(target);
+							else if (operation == '-')
+								channel.remove_operator(target);
+							broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
+						}
+						else
+							user_not_in_channel(fd, args[arg_idx], channel.get_name());
+					}
+					else
+						no_such_nick(fd, args[arg_idx]);
+					OPER_END();
+					arg_idx++;
+				}
+				if (mode & MODE_TOPIC)
+				{
+					OPER_START();
+					if (operation == '+')
+						channel.set_mode(channel.get_mode() | MODE_TOPIC);
+					else
+						channel.set_mode(channel.get_mode() & ~MODE_TOPIC);
+					broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "t");
+					OPER_END();
+				}
+				if (mode & MODE_LIMIT)
+				{
+					OPER_START();
+					if (operation == '+')
+					{
+						CHECK_ARGS(arg_idx + 1);
+						channel.set_mode(channel.get_mode() | MODE_LIMIT);
+						channel.set_limit(std::atoi(args[arg_idx].c_str()));
+						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "l " + args[arg_idx]);
+						arg_idx++;
+					}
+					else if (operation == '-' && channel.has_mode(MODE_LIMIT))
+					{
+						channel.set_mode(channel.get_mode() & ~MODE_LIMIT);
+						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "l");
+					}
+					OPER_END();
+				}
+				if (mode & MODE_KEY)
+				{
+					OPER_START();
+					CHECK_ARGS(arg_idx + 1);
+					if (operation == '+' && !channel.has_mode(MODE_KEY))
+					{
+						channel.set_mode(channel.get_mode() | MODE_KEY);
+						channel.set_key(args[arg_idx]);
+						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "k " + channel.get_key());
+					}
+					else if (operation == '-' && channel.has_mode(MODE_KEY))
+					{
+						channel.set_mode(channel.get_mode() & ~MODE_KEY);
+						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "k");
+					}
+					OPER_END();
+					arg_idx++;
+				}
 			}
-			else
-				no_such_nick(fd, args[3]);
-			OPER_END();
-		}
-		if (mode & MODE_TOPIC)
-		{
-			OPER_START();
-			if (operation == '+')
-				channel.set_mode(channel.get_mode() | MODE_TOPIC);
-			else
-				channel.set_mode(channel.get_mode() & ~MODE_TOPIC);
-			broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
-			OPER_END();
+			mode = 0;
 		}
 	}
 }
@@ -586,7 +623,7 @@ void Server::send_message(int fd, const std::string &message)
 	send(fd, ircmsg.c_str(), ircmsg.length(), 0);
 }
 
-void Server::broadcast_message(Channel & channel, const std::string &message, User *except)
+void Server::broadcast_message(Channel &channel, const std::string &message, User *except)
 {
 	std::cout << BLUE << "Broadcasting to " << RESET << channel.get_name() << BLUE ": `" RESET << escape(message) << BLUE "`" RESET << std::endl;
 	std::string ircmsg(message + "\r\n");

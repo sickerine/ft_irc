@@ -35,3 +35,11 @@ std::string escape(const std::string &str);
 std::vector<std::string> split(const std::string &str, char delim, bool trim = false);
 
 std::string c(int code);
+
+template <typename T>
+std::string to_string(T v)
+{
+	std::stringstream ss;
+	ss << v;
+	return ss.str();
+}
