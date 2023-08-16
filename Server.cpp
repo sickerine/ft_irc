@@ -88,6 +88,7 @@ void Server::receive_data(int fd)
 void Server::welcome(int fd)
 {
 	send_message(fd, ":" + name + " " + c(RPL_WELCOME) + " " + users[fd]->get_nick() + " :kys " + users[fd]->get_nick() + "!" + users[fd]->get_user() + "@" + name);
+	send_message(fd, ":" + name + " 005 " + users[fd]->get_nick() + " CHANMODES=b,k,l,imnpst :are supported by this server"); 
 	send_message(fd, ":" + name + " " + c(RPL_STARTOFMOTD) + " " + users[fd]->get_user() + " :- " + name + " Message of the Day -");
 	send_message(fd, ":" + name + " " + c(RPL_MOTD) + " " + users[fd]->get_nick() + " :- LOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLO");
 	send_message(fd, ":" + name + " " + c(RPL_ENDOFMOTD) + " " + users[fd]->get_user() + " :End of /MOTD command.");
