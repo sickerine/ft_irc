@@ -72,3 +72,15 @@ std::string c(int code)
 	ss << std::setw(3) << std::setfill('0') << code;
 	return ss.str();
 }
+
+std::string join(const std::string arr[], size_t size, const std::string& separator)
+{
+    std::string result;
+    for (size_t i = 0; i < size; i++)
+    {
+        result += arr[i];
+        if (i < size - 1)
+            result += separator;
+    }
+    return result;
+}

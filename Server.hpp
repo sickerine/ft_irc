@@ -51,5 +51,6 @@ public:
 	int add_operator(User *user);
 	void remove_operator(User *user);
 	void channel_operator_privileges_needed(int fd, const std::string &channel);
+	void already_registered(int fd);
 };
  

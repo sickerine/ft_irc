@@ -7,7 +7,6 @@ int main(int argc, char **argv)
 		std::cout << "Usage: ./ircserv <port> <password>" << std::endl;
 		return (EXIT_FAILURE);
 	}
-
 	try
 	{
 		Server server(argv[1], argv[2]);

@@ -30,6 +30,9 @@ std::string join(T begin, T end, std::string delim)
 	return joined;
 }
 
+std::string join(const std::string arr[], size_t size, const std::string& separator);
+#define JN(...) join((const std::string[]){__VA_ARGS__}, sizeof((const std::string[]){__VA_ARGS__})/sizeof(std::string), " ")
+
 std::string escape(const std::string &str);
 
 std::vector<std::string> split(const std::string &str, char delim, bool trim = false);

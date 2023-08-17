@@ -2,7 +2,7 @@
 #include "Channel.hpp"
 #include "User.hpp"
 
-Server::Server(const std::string &port, const std::string &pass) : host("10.11.7.4"), name("globalhost"), password(pass), operator_username("operator"), operator_password("password"), running(true), info(NULL)
+Server::Server(const std::string &port, const std::string &pass) : host("10.11.2.4"), name("globalhost"), password(pass), operator_username("operator"), operator_password("password"), running(true), info(NULL)
 {
 	int on = 1;
 	addrinfo hints = initialized<addrinfo>();
@@ -88,7 +88,7 @@ void Server::receive_data(int fd)
 void Server::welcome(int fd)
 {
 	send_message(fd, ":" + name + " " + c(RPL_WELCOME) + " " + users[fd]->get_nick() + " :kys " + users[fd]->get_nick() + "!" + users[fd]->get_user() + "@" + name);
-	send_message(fd, ":" + name + " 005 " + users[fd]->get_nick() + " CHANMODES=b,k,l,imnpst :are supported by this server"); 
+	send_message(fd, ":" + name + " " + c(RPL_ISUPPORT) + " " + users[fd]->get_nick() + " CHANMODES=b,k,l,imnpst :are supported by this server"); 
 	send_message(fd, ":" + name + " " + c(RPL_STARTOFMOTD) + " " + users[fd]->get_user() + " :- " + name + " Message of the Day -");
 	send_message(fd, ":" + name + " " + c(RPL_MOTD) + " " + users[fd]->get_nick() + " :- LOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLO");
 	send_message(fd, ":" + name + " " + c(RPL_ENDOFMOTD) + " " + users[fd]->get_user() + " :End of /MOTD command.");
@@ -134,6 +134,14 @@ void Server::parse_command(int fd, const std::string &cmd)
 	{
 		if (args[0] == "PASS")
 		{
+			CHECK_ARGS(2);
+
+			if (user->get_registered())
+			{
+				already_registered(fd);
+				return;
+			}
+
 			std::cout << "pass: `" << args[1] << "`" << std::endl;
 			if (args[1] == password)
 			{
@@ -152,6 +160,11 @@ void Server::parse_command(int fd, const std::string &cmd)
 	else if (args[0] == "USER")
 	{
 		CHECK_ARGS(5);
+
+		if (user->get_user() != "") {
+			already_registered(fd);
+			return;
+		}
 		user->set_user(args[1]);
 		user->set_real(join(args.begin() + 4, args.end(), " "));
 		if (user->get_registered())
@@ -359,12 +372,36 @@ void Server::parse_command(int fd, const std::string &cmd)
 	}
 	else if (args[0] == "KICK")
 	{
-		
+		CHECK_ARGS(3);
+
+		CHECK_CHANNEL(args[1]);
+
+		if (!channel.has_user(fd))
+		{
+			not_on_channel(fd, args[1]);
+			return;
+		}
+
+		OPER_START();
+		User *target = find_user_by_nickname(args[2]);
+
+		if (target == NULL)
+		{
+			no_such_nick(fd, args[2]);
+			return;
+		}
+
+		if (channel.has_user(target->get_fd()))
+		{
+			broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " KICK " + args[1] + " " + args[2] + " :");
+			channel.remove_user(target->get_fd());
+		}
+		else
+			user_not_in_channel(fd, args[2], channel.get_name());
+		OPER_END();
 	}
 	else if (args[0] == "INVITE")
 	{
-		// >> :mcharrad!mcharrad@197.230.24.20 INVITE mcharrad_ :#uwu
-
 		CHECK_ARGS(3);
 
 		CHECK_CHANNEL(args[2]);
@@ -488,7 +525,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 			}
 			if (err)
 			{
-				// send_message(fd, ":" + name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
+				send_message(fd, ":" + name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
 				return;
 			}
 			else
@@ -710,6 +747,11 @@ void Server::user_not_in_channel(int fd, const std::string &nickname, const std:
 void Server::channel_operator_privileges_needed(int fd, const std::string &channel)
 {
 	send_message(fd, ":" + name + " " + c(ERR_CHANOPRIVSNEEDED) + " " + users[fd]->get_nick() + " " + channel + " :You're not channel operator");
+}
+
+void Server::already_registered(int fd)
+{
+	send_message(fd, ":" + name + " " + c(ERR_ALREADYREGISTRED) + " " + users[fd]->get_nick() + " :You may not reregister");
 }
 
 bool Server::is_operator(int fd)
