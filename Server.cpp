@@ -46,7 +46,7 @@ void Server::run()
 	{
 		insist(poll(&pfds[0], pfds.size(), -1), -1, "poll failed");
 		for (size_t i = 0; i < pfds.size(); i++)
-			process_events(pfds[i].fd);
+			process_events(pfds[i].fd, pfds[i].revents);
 	}
 }
 
@@ -77,10 +77,11 @@ void Server::receive_data(int fd)
 	while (true)
 	{
 		length = recv(fd, buffer, sizeof(buffer) - 1, 0);
-		if (length == -1)
+		if (length <= 0)
 			break;
 
 		buffer[length] = 0;
+		std::cout << RED << "APPENDIGN: " << buffer << RESET << std::endl;
 		users[fd]->append_data(std::string(buffer));
 	}
 }
@@ -643,12 +644,18 @@ void Server::parse_data(int fd)
 	std::cout << RED "AFTER PARSING DATA: " << escape(users[fd]->get_data()) << RESET << std::endl;
 }
 
-void Server::process_events(int fd)
+void Server::process_events(int fd, int revents)
 {
 	if (fd == server_fd)
 		accept_connections();
 	else
 	{
+		std::cout << MAGENTA << "revents: " << revents << RESET << std::endl;
+		if ((revents & POLLHUP) == POLLHUP || (revents & POLLERR) == POLLERR)
+		{
+			terminate_connection(fd);
+			return;
+		}
 		receive_data(fd);
 		parse_data(fd);
 	}

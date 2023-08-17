@@ -35,7 +35,7 @@ public:
 	void welcome(int fd);
 	void parse_command(int fd, const std::string &cmd);
 	void parse_data(int fd);
-	void process_events(int fd);
+	void process_events(int fd, int revents);
 	void send_message(int fd, const std::string &message);
 	void broadcast_message(Channel & channel, const std::string &message, User *except = NULL);
 	void server_broadcast_message(const std::string &message, User *except = NULL);

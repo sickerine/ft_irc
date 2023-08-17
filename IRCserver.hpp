@@ -15,6 +15,7 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <vector>
+#include <cstring>
 
 #include "utils.hpp"
 
@@ -24,6 +25,8 @@
 #define RESET "\033[0m"
 #define BLUE "\033[34m"
 #define PURPLE "\033[35m"
+#define CYAN "\033[36m"
+#define MAGENTA "\033[35m"
 
 // #pragma region TODO
 
