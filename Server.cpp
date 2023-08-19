@@ -21,13 +21,14 @@ bool Server::load_config_channel(std::ifstream &file)
 		ele[i] = trimstr(ele[i]);
 		std::vector<std::string> subargs = split(ele[i], ':', false);
 
-		if (subargs.size() != 2)
-			return false;
-		if (subargs[0] == "- name")			name = trimstr(subargs[1]);
+		subargs.push_back("");
+		if (subargs[0] == "- name")			name = "#" + trimstr(subargs[1]);
 		else if (subargs[0] == "- key")		key = trimstr(subargs[1]);
 		else if (subargs[0] == "- topic")	topic = trimstr(subargs[1]);
 		else return false;
 	}
+	if (name.empty())
+		return false;
 	create_channel(name, key, topic);
 	return true;
 }
@@ -710,7 +711,12 @@ void Server::parse_data(int fd)
 		std::cout << YELLOW << "Received from " << RESET << fd << YELLOW ": `" RESET << escape(line) << YELLOW "`" RESET << std::endl;
 		try
 		{
-			if (line.substr(line.length() - 1) == "\r")
+			if (line.length() > conf.max_message_length)
+			{
+				terminate_connection(fd);
+				throw std::runtime_error("connection terminated");
+			}
+			else if (line.substr(line.length() - 1) == "\r")
 			{
 				parse_command(fd, line);
 				users[fd]->get_data().erase(0, line.length() + 1);
@@ -753,8 +759,8 @@ void Server::process_events(int fd, int revents)
 	}
 	if (fd != server_fd && users.find(fd) != users.end())
 	{
-		time_t ping = 10;
-		time_t timeout = ping;
+		time_t ping = conf.activity_timeout;
+		time_t timeout = conf.ping_timeout;
 		time_t now = time(NULL);
 
 		if (now - users[fd]->get_last_activity() >= ping)
