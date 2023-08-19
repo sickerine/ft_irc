@@ -2,8 +2,88 @@
 #include "Channel.hpp"
 #include "User.hpp"
 
-Server::Server(const std::string &port, const std::string &pass) : host("10.11.2.4"), name("globalhost"), password(pass), operator_username("operator"), operator_password("password"), running(true), info(NULL)
+bool Server::load_config_channel(std::ifstream &file)
 {
+	std::string ele[3];
+
+	if (!std::getline(file, ele[0]))
+		return false;
+	if (!std::getline(file, ele[1]))
+		return false;
+	if (!std::getline(file, ele[2]))
+		return false;
+
+	// For each element in ele trim then split and check if it's a valid channel subkey
+	// aka "- name", "- key", "- topic"
+	std::string name, key, topic;
+	for (size_t i = 0; i < 3; i++)
+	{
+		ele[i] = trimstr(ele[i]);
+		std::vector<std::string> subargs = split(ele[i], ':', false);
+
+		if (subargs.size() != 2)
+			return false;
+		if (subargs[0] == "- name")			name = trimstr(subargs[1]);
+		else if (subargs[0] == "- key")		key = trimstr(subargs[1]);
+		else if (subargs[0] == "- topic")	topic = trimstr(subargs[1]);
+		else return false;
+	}
+	create_channel(name, key, topic);
+	return true;
+}
+
+bool Server::load_config(const std::string &filename)
+{
+	std::ifstream file(filename.c_str());
+	std::string line;
+
+	if (!file.is_open())
+		return false;
+
+	while (std::getline(file, line))
+	{
+		line = trimstr(line);
+		if (line.empty() || line[0] == '#')
+			continue;
+		std::vector<std::string> args = split(line, ':', false);
+		if (args[0] == "channel") {
+			if (load_config_channel(file))
+				continue;
+			return false;
+		}
+		if (args.size() < 2)
+		{
+			std::cout << "args.size() < 2" << std::endl;
+			return false;
+		}
+		std::string key = trimstr(args[0]);
+		std::string value = trimstr(args[1]);
+		if (key.empty() || value.empty())
+		{
+			std::cout << key << " or " << value << " is empty" << std::endl;
+			return false;
+		}
+		configs[key] = value;
+	}
+	return true;
+}
+
+Server::Server(const std::string &port, const std::string &pass) : running(true), info(NULL)
+{
+	insist(load_config("irc.conf"), false, "failed to load config");
+
+	conf.password = pass.empty() ? configs["server_password"] : pass;
+	conf.port = port.empty() ? configs["server_port"] : port;
+	conf.motd = configs["motd"];
+	conf.host = configs["server_ip"];
+	conf.name = configs["server_name"];
+	conf.operator_username = configs["operator_username"];
+	conf.operator_password = configs["operator_password"];
+	conf.activity_timeout = std::atoi(configs["activity_timeout"].c_str());
+	conf.ping_timeout = std::atoi(configs["ping_timeout"].c_str());
+	conf.max_message_length = std::atoi(configs["max_message_length"].c_str());
+	conf.max_nick_length = std::atoi(configs["max_nickname_length"].c_str());
+
 	int on = 1;
 	addrinfo hints = initialized<addrinfo>();
 
@@ -11,7 +91,7 @@ Server::Server(const std::string &port, const std::string &pass) : host("10.11.2
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_socktype = SOCK_STREAM;
 
-	insist(getaddrinfo(host.c_str(), port.c_str(), &hints, &info), -1, "getaddrinfo failed");
+	insist(getaddrinfo(conf.host.c_str(), conf.port.c_str(), &hints, &info), -1, "getaddrinfo failed");
 	insist(info == NULL, true, "info is null");
 
 	server_fd = socket(info->ai_family, info->ai_socktype, info->ai_protocol);
@@ -24,8 +104,9 @@ Server::Server(const std::string &port, const std::string &pass) : host("10.11.2
 
 	pfds.push_back(make_pfd(server_fd, POLLIN, 0));
 
-	create_channel("#global", "", "safe");
-	create_channel("#hentai", "abc", "nsfw");
+
+	// create_channel("#global", "", "safe");
+	// create_channel("#hentai", "abc", "nsfw");
 }
 Server::~Server()
 {
@@ -62,7 +143,7 @@ void Server::accept_connections()
 		new_fd = accept(server_fd, &addr, &len);
 		if (new_fd == -1)
 			break;
-		pfds.push_back(make_pfd(new_fd, POLLIN, 0));
+		pfds.push_back(make_pfd(new_fd, POLLIN | POLLOUT, 0));
 		users[new_fd] = new User();
 		users[new_fd]->set_fd(new_fd);
 		users[new_fd]->set_host(addr);
@@ -83,16 +164,17 @@ void Server::receive_data(int fd)
 		buffer[length] = 0;
 		std::cout << RED << "APPENDIGN: " << buffer << RESET << std::endl;
 		users[fd]->append_data(std::string(buffer));
+		users[fd]->set_last_activity();
 	}
 }
 
 void Server::welcome(int fd)
 {
-	send_message(fd, ":" + name + " " + c(RPL_WELCOME) + " " + users[fd]->get_nick() + " :kys " + users[fd]->get_nick() + "!" + users[fd]->get_user() + "@" + name);
-	send_message(fd, ":" + name + " " + c(RPL_ISUPPORT) + " " + users[fd]->get_nick() + " CHANMODES=k,l,it :are supported by this server"); 
-	send_message(fd, ":" + name + " " + c(RPL_STARTOFMOTD) + " " + users[fd]->get_user() + " :- " + name + " Message of the Day -");
-	send_message(fd, ":" + name + " " + c(RPL_MOTD) + " " + users[fd]->get_nick() + " :- LOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOLOOLOLOLOLOLOLOLO");
-	send_message(fd, ":" + name + " " + c(RPL_ENDOFMOTD) + " " + users[fd]->get_user() + " :End of /MOTD command.");
+	send_message(fd, ":" + conf.name + " " + c(RPL_WELCOME) + " " + users[fd]->get_nick() + " :kys " + users[fd]->get_nick() + "!" + users[fd]->get_user() + "@" + conf.name);
+	send_message(fd, ":" + conf.name + " " + c(RPL_ISUPPORT) + " " + users[fd]->get_nick() + " CHANMODES=k,l,it :are supported by this server"); 
+	send_message(fd, ":" + conf.name + " " + c(RPL_STARTOFMOTD) + " " + users[fd]->get_user() + " :- " + conf.name + " Message of the Day -");
+	send_message(fd, ":" + conf.name + " " + c(RPL_MOTD) + " " + users[fd]->get_nick() + " :- " + conf.motd);
+	send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFMOTD) + " " + users[fd]->get_user() + " :End of /MOTD command.");
 }
 
 void Server::parse_command(int fd, const std::string &cmd)
@@ -144,7 +226,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 			}
 
 			std::cout << "pass: `" << args[1] << "`" << std::endl;
-			if (args[1] == password)
+			if (args[1] == conf.password)
 			{
 				std::cout << "yes" << std::endl;
 				user->set_auth(true);
@@ -152,7 +234,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 			else
 				std::cout << "no" << std::endl;
 		}
-		else if (args[0] != "CAP" && args[0] != "PROTOCTL")
+		else if (args[0] != "CAP" && args[0] != "PROTOCTL" && args[0] != "PONG")
 		{
 			terminate_connection(fd);
 			throw std::runtime_error("connection terminated");
@@ -179,22 +261,22 @@ void Server::parse_command(int fd, const std::string &cmd)
 		bool taken = find_user_by_nickname(args[1]) != NULL;
 		if (taken)
 		{
-			send_message(fd, ":" + name + " " + c(ERR_NICKNAMEINUSE) + " " + args[1] + " :" + args[1]);
+			send_message(fd, ":" + conf.name + " " + c(ERR_NICKNAMEINUSE) + " " + args[1] + " :" + args[1]);
 			return;
 		}
 		user->set_nick(args[1]);
 		if (user->get_registered())
-			send_message(fd, ":" + name + " NICK " + args[1]);
+			send_message(fd, ":" + conf.name + " NICK " + args[1]);
 		user->set_registered(true);
 		if (user->get_user() != "")
 			welcome(fd);
 	}
 	else if (args[0] == "LIST")
 	{
-		send_message(fd, ":" + name + " " + c(RPL_LISTSTART) + " " + user->get_nick() + " Channel :Users Name");
+		send_message(fd, ":" + conf.name + " " + c(RPL_LISTSTART) + " " + user->get_nick() + " Channel :Users Name");
 		for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); it++)
-			send_message(fd, ":" + name + " " + c(RPL_LIST) + " " + user->get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :" + it->second.get_topic());
-		send_message(fd, ":" + name + " " + c(RPL_LISTEND) + " " + user->get_nick() + " :End of /LIST");
+			send_message(fd, ":" + conf.name + " " + c(RPL_LIST) + " " + user->get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :" + it->second.get_topic());
+		send_message(fd, ":" + conf.name + " " + c(RPL_LISTEND) + " " + user->get_nick() + " :End of /LIST");
 	}
 	else if (args[0] == "QUIT")
 	{
@@ -230,21 +312,21 @@ void Server::parse_command(int fd, const std::string &cmd)
 					{
 						int ret = channel.add_user(fd, user, channel_key);
 						if (ret == ERR_BADCHANNELKEY)
-							send_message(fd, ":" + name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
+							send_message(fd, ":" + conf.name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
 						else
 						{
 							channel.remove_invite(user);
 							broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " JOIN :" + params[i]);
-							send_message(fd, ":" + name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
-							send_message(fd, ":" + name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
-							send_message(fd, ":" + name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
+							send_message(fd, ":" + conf.name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
+							send_message(fd, ":" + conf.name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
+							send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
 						}
 					}
 					else
-						send_message(fd, ":" + name + " " + c(ERR_CHANNELISFULL) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+l)");
+						send_message(fd, ":" + conf.name + " " + c(ERR_CHANNELISFULL) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+l)");
 				}
 				else
-					send_message(fd, ":" + name + " " + c(ERR_INVITEONLYCHAN) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+i)");
+					send_message(fd, ":" + conf.name + " " + c(ERR_INVITEONLYCHAN) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+i)");
 			}
 			else
 				no_such_channel(fd, params[i]);
@@ -263,8 +345,8 @@ void Server::parse_command(int fd, const std::string &cmd)
 		std::vector<std::string> who_list = channels[args[1]].get_who_list();
 
 		for (size_t i = 0; i < who_list.size(); i++)
-			send_message(fd, ":" + name + " " + c(RPL_WHOREPLY) + " " + user->get_nick() + " " + args[1] + " " + who_list[i]);
-		send_message(fd, ":" + name + " " + c(RPL_ENDOFWHO) + " " + user->get_nick() + " " + args[1] + " :End of /WHO list");
+			send_message(fd, ":" + conf.name + " " + c(RPL_WHOREPLY) + " " + user->get_nick() + " " + args[1] + " " + who_list[i]);
+		send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFWHO) + " " + user->get_nick() + " " + args[1] + " :End of /WHO list");
 	}
 	else if (args[0] == "PRIVMSG")
 	{
@@ -291,7 +373,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 				return;
 			}
 
-			broadcast_message(channel, ":" + user->get_hostmask(user->get_prefixed_nick(channel.get_users())) + " PRIVMSG " + args[1] + " " + message, users[fd]);
+			broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " PRIVMSG " + args[1] + " " + message, users[fd]);
 		}
 		else
 		{
@@ -317,7 +399,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 		{
 			if (channels.find(args[1]) == channels.end())
 			{
-				send_message(fd, ":" + name + " " + c(RPL_NOWOFF) + " " + user->get_nick() + " " + args[1] + " :" + args[1] + " * * 0 is offline");
+				send_message(fd, ":" + conf.name + " " + c(RPL_NOWOFF) + " " + user->get_nick() + " " + args[1] + " :" + args[1] + " * * 0 is offline");
 				return;
 			}
 		}
@@ -326,11 +408,11 @@ void Server::parse_command(int fd, const std::string &cmd)
 			User *user = find_user_by_nickname(args[1]);
 			if (user == NULL)
 			{
-				send_message(fd, ":" + name + " " + c(RPL_ISON) + " " + user->get_nick() + " :" + args[1]);
+				send_message(fd, ":" + conf.name + " " + c(RPL_ISON) + " " + user->get_nick() + " :" + args[1]);
 				return;
 			}
 		}
-		send_message(fd, ":" + name + " " + c(RPL_ISON) + " " + user->get_nick() + " :");
+		send_message(fd, ":" + conf.name + " " + c(RPL_ISON) + " " + user->get_nick() + " :");
 	}
 	else if (args[0] == "PART")
 	{
@@ -352,23 +434,23 @@ void Server::parse_command(int fd, const std::string &cmd)
 	{
 		std::string message = join(args.begin() + 1, args.end(), " ");
 
-		send_message(fd, ":" + name + " PONG " + name + " :" + message);
+		send_message(fd, ":" + conf.name + " PONG " + conf.name + " :" + message);
 	}
 	else if (args[0] == "OPER")
 	{
 		CHECK_ARGS(3);
 
-		bool authenticated = args[1] == operator_username && args[2] == operator_password;
+		bool authenticated = args[1] == conf.operator_username && args[2] == conf.operator_password;
 		if (authenticated)
 		{
 			operators[fd] = user;
 			user->set_server_operator(true);
-			send_message(fd, ":" + name + " " + c(RPL_YOUREOPER) + " " + user->get_nick() + " :You are now an IRC operator");
-			server_broadcast_message(":" + name + " MODE " + user->get_nick() + " :+o");
+			send_message(fd, ":" + conf.name + " " + c(RPL_YOUREOPER) + " " + user->get_nick() + " :You are now an IRC operator");
+			server_broadcast_message(":" + conf.name + " MODE " + user->get_nick() + " :+o");
 		}
 		else
 		{
-			send_message(fd, ":" + name + " " + c(ERR_PASSWDMISMATCH) + " " + user->get_nick() + " :Password incorrect");
+			send_message(fd, ":" + conf.name + " " + c(ERR_PASSWDMISMATCH) + " " + user->get_nick() + " :Password incorrect");
 		}
 	}
 	else if (args[0] == "KICK")
@@ -427,11 +509,11 @@ void Server::parse_command(int fd, const std::string &cmd)
 		{
 			if (channel.has_user(target->get_fd()))
 			{
-				send_message(fd, ":" + name + " " + c(ERR_USERONCHANNEL) + " " + user->get_nick() + " " + args[1] + " " + args[2] + " :is already on channel");
+				send_message(fd, ":" + conf.name + " " + c(ERR_USERONCHANNEL) + " " + user->get_nick() + " " + args[1] + " " + args[2] + " :is already on channel");
 				return;
 			}
 			send_message(target->get_fd(), ":" + user->get_hostmask(user->get_nick()) + " INVITE " + target->get_nick() + " " + args[2]);
-			send_message(fd, ":" + name + " " + c(RPL_INVITING) + " " + user->get_nick() + " " + args[1] + " " + args[2]);
+			send_message(fd, ":" + conf.name + " " + c(RPL_INVITING) + " " + user->get_nick() + " " + args[1] + " " + args[2]);
 			channel.invite(target);
 		}
 		else
@@ -451,7 +533,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 
 		if (args.size() == 2)
 		{
-			send_message(fd, ":" + name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + args[1] + " :" + channel.get_topic());
+			send_message(fd, ":" + conf.name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + args[1] + " :" + channel.get_topic());
 			return;
 		}
 
@@ -495,7 +577,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 				values += to_string(channel.get_limit());
 			}
 
-			send_message(fd, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +" + modes + " " + values);
+			send_message(fd, ":" + conf.name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +" + modes + " " + values);
 			return;
 		}
 
@@ -503,7 +585,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 
 		if (operation != '+' && operation != '-')
 		{
-			send_message(fd, ":" + name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2] + " :retard");
+			send_message(fd, ":" + conf.name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2] + " :retard");
 			return;
 		}
 
@@ -526,7 +608,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 			}
 			if (err)
 			{
-				send_message(fd, ":" + name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
+				send_message(fd, ":" + conf.name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
 				return;
 			}
 			else
@@ -554,7 +636,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 								channel.add_operator(target);
 							else if (operation == '-')
 								channel.remove_operator(target);
-							broadcast_message(channel, ":" + name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
+							broadcast_message(channel, ":" + conf.name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
 						}
 						else
 							user_not_in_channel(fd, args[arg_idx], channel.get_name());
@@ -646,18 +728,48 @@ void Server::parse_data(int fd)
 
 void Server::process_events(int fd, int revents)
 {
-	if (fd == server_fd)
-		accept_connections();
-	else
+	// std::cout << MAGENTA << "revents: " << revents << RESET << std::endl;
+	if (revents & POLLIN)
 	{
-		std::cout << MAGENTA << "revents: " << revents << RESET << std::endl;
-		if ((revents & POLLHUP) == POLLHUP || (revents & POLLERR) == POLLERR)
-		{
-			terminate_connection(fd);
-			return;
+		if (fd == server_fd)
+			accept_connections();
+		else {
+			receive_data(fd);
+			parse_data(fd);
 		}
-		receive_data(fd);
-		parse_data(fd);
+	}
+	if (revents & (POLLHUP | POLLERR))
+	{
+		terminate_connection(fd);
+		return;
+	}
+	if (revents & POLLOUT)
+	{
+		if (users.find(fd) != users.end() && users[fd]->get_sendbuffer().length() > 0)
+		{
+			send(fd, users[fd]->get_sendbuffer().c_str(), users[fd]->get_sendbuffer().length(), 0);
+			users[fd]->clear_sendbuffer();
+		}
+	}
+	if (fd != server_fd && users.find(fd) != users.end())
+	{
+		time_t ping = 10;
+		time_t timeout = ping;
+		time_t now = time(NULL);
+
+		if (now - users[fd]->get_last_activity() >= ping)
+		{
+			if (users[fd]->get_last_ping() <= users[fd]->get_last_activity())
+			{
+				send_message(fd, "PING " + to_string(now));
+				users[fd]->set_last_ping();
+			}
+			else if (now - users[fd]->get_last_ping() >= timeout)
+			{
+				terminate_connection(fd);
+				return;
+			}
+		}
 	}
 }
 
@@ -665,7 +777,8 @@ void Server::send_message(int fd, const std::string &message)
 {
 	std::cout << GREEN << "Sending to " << RESET << fd << GREEN ": `" RESET << escape(message) << GREEN "`" RESET << std::endl;
 	std::string ircmsg(message + "\r\n");
-	send(fd, ircmsg.c_str(), ircmsg.length(), 0);
+	users[fd]->append_sendbuffer(ircmsg);
+	// send(fd, ircmsg.c_str(), ircmsg.length(), 0);
 }
 
 void Server::broadcast_message(Channel &channel, const std::string &message, User *except)
@@ -675,7 +788,7 @@ void Server::broadcast_message(Channel &channel, const std::string &message, Use
 	for (UserList::iterator it = channel.get_users().begin(); it != channel.get_users().end(); ++it)
 	{
 		if (it->second != except)
-			send(it->first, ircmsg.c_str(), ircmsg.length(), 0);
+			users[it->first]->append_sendbuffer(ircmsg);
 	}
 }
 
@@ -686,7 +799,7 @@ void Server::server_broadcast_message(const std::string &message, User *except)
 	for (UserList::iterator it = users.begin(); it != users.end(); ++it)
 	{
 		if (it->second != except && it->second->get_registered())
-			send(it->first, ircmsg.c_str(), ircmsg.length(), 0);
+			users[it->first]->append_sendbuffer(ircmsg);
 	}
 }
 
@@ -728,37 +841,37 @@ User *Server::find_user_by_nickname(const std::string &nickname)
 
 void Server::need_more_params(int fd, const std::string &command)
 {
-	send_message(fd, ":" + name + " " + c(ERR_NEEDMOREPARAMS) + " " + users[fd]->get_nick() + " " + command + " :Not enough parameters");
+	send_message(fd, ":" + conf.name + " " + c(ERR_NEEDMOREPARAMS) + " " + users[fd]->get_nick() + " " + command + " :Not enough parameters");
 }
 
 void Server::no_such_channel(int fd, const std::string &channel)
 {
-	send_message(fd, ":" + name + " " + c(ERR_NOSUCHCHANNEL) + " " + users[fd]->get_nick() + " " + channel + " :No such channel");
+	send_message(fd, ":" + conf.name + " " + c(ERR_NOSUCHCHANNEL) + " " + users[fd]->get_nick() + " " + channel + " :No such channel");
 }
 
 void Server::not_on_channel(int fd, const std::string &channel)
 {
-	send_message(fd, ":" + name + " " + c(ERR_NOTONCHANNEL) + " " + users[fd]->get_nick() + " " + channel + " :You're not on that channel");
+	send_message(fd, ":" + conf.name + " " + c(ERR_NOTONCHANNEL) + " " + users[fd]->get_nick() + " " + channel + " :You're not on that channel");
 }
 
 void Server::no_such_nick(int fd, const std::string &nickname)
 {
-	send_message(fd, ":" + name + " " + c(ERR_NOSUCHNICK) + " " + users[fd]->get_nick() + " " + nickname + " :No such nick/channel");
+	send_message(fd, ":" + conf.name + " " + c(ERR_NOSUCHNICK) + " " + users[fd]->get_nick() + " " + nickname + " :No such nick/channel");
 }
 
 void Server::user_not_in_channel(int fd, const std::string &nickname, const std::string &channel)
 {
-	send_message(fd, ":" + name + " " + c(ERR_USERNOTINCHANNEL) + " " + users[fd]->get_nick() + " " + nickname + " " + channel + " :They aren't on that channel");
+	send_message(fd, ":" + conf.name + " " + c(ERR_USERNOTINCHANNEL) + " " + users[fd]->get_nick() + " " + nickname + " " + channel + " :They aren't on that channel");
 }
 
 void Server::channel_operator_privileges_needed(int fd, const std::string &channel)
 {
-	send_message(fd, ":" + name + " " + c(ERR_CHANOPRIVSNEEDED) + " " + users[fd]->get_nick() + " " + channel + " :You're not channel operator");
+	send_message(fd, ":" + conf.name + " " + c(ERR_CHANOPRIVSNEEDED) + " " + users[fd]->get_nick() + " " + channel + " :You're not channel operator");
 }
 
 void Server::already_registered(int fd)
 {
-	send_message(fd, ":" + name + " " + c(ERR_ALREADYREGISTRED) + " " + users[fd]->get_nick() + " :You may not reregister");
+	send_message(fd, ":" + conf.name + " " + c(ERR_ALREADYREGISTRED) + " " + users[fd]->get_nick() + " :You may not reregister");
 }
 
 bool Server::is_operator(int fd)

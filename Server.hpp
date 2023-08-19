@@ -9,11 +9,19 @@ class Server;
 class Server
 {
 private:
-	std::string host;
-	std::string name;
-	std::string password;
-	std::string operator_username;
-	std::string operator_password;
+	struct {
+		std::string host;
+		std::string port;
+		std::string name;
+		std::string password;
+		std::string operator_username;
+		std::string operator_password;
+		std::string motd;
+		time_t activity_timeout;
+		time_t ping_timeout;
+		time_t max_message_length;
+		time_t max_nick_length;
+	} conf;
 	bool running;
 
 	// TCP stuff
@@ -25,6 +33,7 @@ private:
 	UserList users;
 	UserList operators;
 	std::map<std::string, Channel> channels;
+	std::map<std::string, std::string> configs;
 public:
 	Server(const std::string &port, const std::string &pass);
 	~Server();
@@ -52,5 +61,7 @@ public:
 	void remove_operator(User *user);
 	void channel_operator_privileges_needed(int fd, const std::string &channel);
 	void already_registered(int fd);
+	bool load_config(const std::string &filename);
+	bool load_config_channel(std::ifstream &file);
 };
  

@@ -46,3 +46,5 @@ std::string to_string(T v)
 	ss << v;
 	return ss.str();
 }
+
+std::string trimstr(const std::string &str);

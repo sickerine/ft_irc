@@ -4,6 +4,8 @@
 
 User::User() : registered(false), authenticated(false), server_operator(false), fd(-1)
 {
+	last_activity = std::time(NULL);
+	last_ping = std::time(NULL);
 }
 
 User::~User()
@@ -55,3 +57,14 @@ std::string User::get_hostmask(std::string prefixed_nick)
 {
 	return prefixed_nick + "!" + username + "@" + hostname;
 }
+
+void User::set_sendbuffer(const std::string &buffer) { sendbuffer = buffer; }
+const std::string &User::get_sendbuffer() { return sendbuffer; }
+void User::clear_sendbuffer() { sendbuffer.clear(); }
+void User::append_sendbuffer(const std::string &buffer) { sendbuffer += buffer; }
+
+void User::set_last_activity() { last_activity = std::time(NULL); }
+time_t User::get_last_activity() { return last_activity; }
+
+void User::set_last_ping() { last_ping = std::time(NULL); }
+time_t User::get_last_ping() { return last_ping; }

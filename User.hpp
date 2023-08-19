@@ -14,9 +14,12 @@ private:
 	std::string hostname;
 	std::string realname;
 	std::string datastream;
+	std::string sendbuffer;
 	bool registered;
 	bool authenticated;
 	bool server_operator;
+	time_t last_activity;
+	time_t last_ping;
 	int fd;
 
 public:
@@ -34,6 +37,17 @@ public:
 
 	void set_real(const std::string &real);
 	const std::string &get_real();
+
+	void set_sendbuffer(const std::string &buffer);
+	const std::string &get_sendbuffer();
+	void clear_sendbuffer();
+	void append_sendbuffer(const std::string &buffer);
+
+	void set_last_activity();
+	time_t get_last_activity();
+
+	void set_last_ping();
+	time_t get_last_ping();
 
 	void set_auth(bool auth);
 	bool get_auth();

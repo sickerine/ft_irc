@@ -56,13 +56,13 @@ std::vector<std::string> split(const std::string &str, char delim, bool trim)
 	while (splits.back().empty())
 		splits.pop_back();
 
-	for (size_t i = 0; i < splits.size(); i++)
-	{
-		std::cout << "[" << i << "] " << splits[i] << " (" << splits[i].length() << "): ";
-		for (size_t j = 0; j < splits[i].length(); j++)
-			std::cout << " " << (int)splits[i][j];
-		std::cout << std::endl;
-	}
+	//for (size_t i = 0; i < splits.size(); i++)
+	//{
+	//	std::cout << "[" << i << "] " << splits[i] << " (" << splits[i].length() << "): ";
+	//	for (size_t j = 0; j < splits[i].length(); j++)
+	//		std::cout << " " << (int)splits[i][j];
+	//	std::cout << std::endl;
+	//}
 	return splits;
 }
 
