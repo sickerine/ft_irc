@@ -22,6 +22,8 @@
 #include "utils.hpp"
 
 #define RED "\033[31m"
+#define ORANGE "\033[38;5;208m"
+#define MUSTARD "\033[38;5;214m"
 #define GREEN "\033[32m"
 #define YELLOW "\033[33m"
 #define RESET "\033[0m"
@@ -62,6 +64,12 @@
 	} \
 	else \
 		channel_operator_privileges_needed(fd, channel.get_name()); 
+
+#define REQUIRE_CONF(x) insist((conf.x = configs[#x]).empty(), true, #x" is empty"); 
+#define REQUIRE_PCONF(prefix, x) insist((conf.x = configs[#prefix"_"#x]).empty(), true, #x" is empty"); 
+
+#define OPTIONAL_CONF(x) (configs.find(#x) != configs.end() ? configs[#x] : "")
+#define OPTIONAL_PCONF(prefix, x) (configs.find(#x) != configs.end() ? configs[#prefix"_"#x] : "")
 
 class User;
 

@@ -11,6 +11,7 @@ int main(int argc, char **argv)
 	{
 		Server server(argv[1], argv[2]);
 		std::cout << "Server running on port " << argv[1] << std::endl;
+		server.initialize_bot();
 		server.run();
 	}
 	catch (std::exception &e)

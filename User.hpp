@@ -33,13 +33,14 @@ public:
 	const std::string &get_user();
 
 	void set_host(sockaddr &addr);
+	void set_host(const std::string &host);
 	const std::string &get_host();
 
 	void set_real(const std::string &real);
 	const std::string &get_real();
 
 	void set_sendbuffer(const std::string &buffer);
-	const std::string &get_sendbuffer();
+	std::string &get_sendbuffer();
 	void clear_sendbuffer();
 	void append_sendbuffer(const std::string &buffer);
 

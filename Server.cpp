@@ -13,8 +13,6 @@ bool Server::load_config_channel(std::ifstream &file)
 	if (!std::getline(file, ele[2]))
 		return false;
 
-	// For each element in ele trim then split and check if it's a valid channel subkey
-	// aka "- name", "- key", "- topic"
 	std::string name, key, topic;
 	for (size_t i = 0; i < 3; i++)
 	{
@@ -71,19 +69,25 @@ bool Server::load_config(const std::string &filename)
 
 Server::Server(const std::string &port, const std::string &pass) : running(true), info(NULL)
 {
-	insist(load_config("irc.conf"), false, "failed to load config");
+	insist(load_config("irc.preg"), false, "failed to load config");
 
-	conf.password = pass.empty() ? configs["server_password"] : pass;
-	conf.port = port.empty() ? configs["server_port"] : port;
-	conf.motd = configs["motd"];
-	conf.host = configs["server_ip"];
-	conf.name = configs["server_name"];
-	conf.operator_username = configs["operator_username"];
-	conf.operator_password = configs["operator_password"];
+	conf.password = pass.empty() ?  OPTIONAL_PCONF(server, password) : pass;
+	conf.port = port.empty() ? OPTIONAL_PCONF(server, port) : port;
+	REQUIRE_CONF(motd);
+	REQUIRE_PCONF(server, host);
+	REQUIRE_PCONF(server, name);
+	REQUIRE_CONF(operator_username);
+	REQUIRE_CONF(operator_password);
+	REQUIRE_CONF(operator_password);
 	conf.activity_timeout = std::atoi(configs["activity_timeout"].c_str());
 	conf.ping_timeout = std::atoi(configs["ping_timeout"].c_str());
 	conf.max_message_length = std::atoi(configs["max_message_length"].c_str());
 	conf.max_nick_length = std::atoi(configs["max_nickname_length"].c_str());
+
+	REQUIRE_CONF(bot.nickname);
+	REQUIRE_CONF(bot.username);
+	REQUIRE_CONF(bot.realname);
+	conf.bot.fd = std::atoi(configs["bot.fd"].c_str());
 
 	int on = 1;
 	addrinfo hints = initialized<addrinfo>();
@@ -104,17 +108,13 @@ Server::Server(const std::string &port, const std::string &pass) : running(true)
 	insist(listen(server_fd, 69), -1, "listen failed");
 
 	pfds.push_back(make_pfd(server_fd, POLLIN, 0));
-
-
-	// create_channel("#global", "", "safe");
-	// create_channel("#hentai", "abc", "nsfw");
 }
 Server::~Server()
 {
 	if (info)
 		freeaddrinfo(info);
-	// for (UserList::iterator it = users.begin(); it != users.end(); ++it)
-	// 	delete it->second;
+	for (UserList::iterator it = users.begin(); it != users.end(); ++it)
+		delete it->second;
 }
 
 void Server::create_channel(const std::string &name, const std::string &key, const std::string &topic)
@@ -129,6 +129,11 @@ void Server::run()
 		insist(poll(&pfds[0], pfds.size(), -1), -1, "poll failed");
 		for (size_t i = 0; i < pfds.size(); i++)
 			process_events(pfds[i].fd, pfds[i].revents);
+		if (conf.bot.fd < 0)
+		{
+			if (bot_parse())
+				parse_data(conf.bot.fd);
+		}
 	}
 }
 
@@ -144,6 +149,7 @@ void Server::accept_connections()
 		new_fd = accept(server_fd, &addr, &len);
 		if (new_fd == -1)
 			break;
+		fcntl(new_fd, F_SETFL, O_NONBLOCK);
 		pfds.push_back(make_pfd(new_fd, POLLIN | POLLOUT, 0));
 		users[new_fd] = new User();
 		users[new_fd]->set_fd(new_fd);
@@ -738,7 +744,9 @@ void Server::process_events(int fd, int revents)
 	if (revents & POLLIN)
 	{
 		if (fd == server_fd)
+		{
 			accept_connections();
+		}
 		else {
 			receive_data(fd);
 			parse_data(fd);
@@ -894,4 +902,71 @@ int Server::add_operator(User *user)
 void Server::remove_operator(User *user)
 {
 	operators.erase(user->get_fd());
+}
+
+void Server::initialize_bot()
+{
+	users[conf.bot.fd] = new User();
+	users[conf.bot.fd]->set_fd(conf.bot.fd);
+	users[conf.bot.fd]->set_nick(conf.bot.nickname);
+	users[conf.bot.fd]->set_user(conf.bot.username);
+	users[conf.bot.fd]->set_real(conf.bot.realname);
+	users[conf.bot.fd]->set_host(conf.host);
+	users[conf.bot.fd]->set_auth(true);
+	users[conf.bot.fd]->set_registered(true);
+	users[conf.bot.fd]->set_server_operator(true);
+
+	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); it++)
+	{
+		it->second.add_user(conf.bot.fd, users[conf.bot.fd], it->second.get_key());
+		it->second.add_operator(users[conf.bot.fd]);
+	}
+}
+
+bool Server::bot_parse()
+{
+	int fd = conf.bot.fd;
+	if (users[fd]->get_sendbuffer().find("\r") == std::string::npos)
+		return false;
+
+	std::istringstream iss(users[fd]->get_sendbuffer());
+	std::string line;
+
+	std::cout << ORANGE "BOT PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
+
+	while (std::getline(iss, line))
+	{
+		std::cout << MUSTARD << "BOT RECEIVED : `" << RESET << escape(line) << MUSTARD "`" RESET << std::endl;
+		try
+		{	
+			if (line.substr(line.length() - 1) == "\r")
+			{
+				bot_response(line);
+				users[fd]->get_sendbuffer().erase(0, line.length() + 1);
+			}
+			else
+				break;
+		}
+		catch (...)
+		{
+			return false;
+		}
+	}
+	std::cout << ORANGE "AFTER PARSING BOT DATA: " << escape(users[fd]->get_sendbuffer()) << RESET << std::endl;
+
+	return true;
+}
+
+std::string get_nickname_from_hostmask(std::string hostmask)
+{
+	std::vector<std::string> args = split(hostmask, '!');
+	return args[0].substr(1);
+}
+
+void Server::bot_response(std::string message)
+{
+	std::vector<std::string> args = split(message, ' ');
+
+	if (args[1] == "PRIVMSG")
+		users[conf.bot.fd]->append_data("PRIVMSG " + get_nickname_from_hostmask(args[0]) + " :IM A BOT\r\n");
 }

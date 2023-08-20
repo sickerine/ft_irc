@@ -1,14 +1,19 @@
-server_ip: 10.11.3.4
+server_host: 10.11.3.4
 server_password: a
 server_port: 6900
 server_name: globalhost
 operator_username: operator
 operator_password: password
 
-activity_timeout: 30
+activity_timeout: 3000
 ping_timeout: 30
 max_message_length: 512
 max_nickname_length: 30
+
+bot.fd: -69
+bot.nickname: pregnant_man
+bot.username: pregnant_man
+bot.realname: Pregnant Man
 
 channel:
   - name: global
@@ -20,4 +25,5 @@ channel:
   - key: abcdef
   - topic: NSFW
 
-motd: GO KILL YOURSELF!
+
+motd: kys

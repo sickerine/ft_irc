@@ -19,6 +19,7 @@ void User::set_user(const std::string &user) { username = user; }
 const std::string &User::get_user() { return username; }
 
 void User::set_host(sockaddr &addr) { hostname = inet_ntoa(((sockaddr_in *)&addr)->sin_addr); }
+void User::set_host(const std::string &host) { hostname = host; }
 const std::string &User::get_host() { return hostname; }
 
 void User::set_real(const std::string &real) { realname = real; }
@@ -59,7 +60,7 @@ std::string User::get_hostmask(std::string prefixed_nick)
 }
 
 void User::set_sendbuffer(const std::string &buffer) { sendbuffer = buffer; }
-const std::string &User::get_sendbuffer() { return sendbuffer; }
+std::string &User::get_sendbuffer() { return sendbuffer; }
 void User::clear_sendbuffer() { sendbuffer.clear(); }
 void User::append_sendbuffer(const std::string &buffer) { sendbuffer += buffer; }
 

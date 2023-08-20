@@ -19,8 +19,15 @@ private:
 		std::string motd;
 		time_t activity_timeout;
 		time_t ping_timeout;
-		time_t max_message_length;
-		time_t max_nick_length;
+		size_t max_message_length;
+		size_t max_nick_length;
+
+		struct {
+			std::string nickname;
+			std::string username;
+			std::string realname;
+			int fd;
+		} bot;
 	} conf;
 	bool running;
 
@@ -63,5 +70,9 @@ public:
 	void already_registered(int fd);
 	bool load_config(const std::string &filename);
 	bool load_config_channel(std::ifstream &file);
+
+	void initialize_bot();
+	bool bot_parse();
+	void bot_response(std::string message);
 };
  
