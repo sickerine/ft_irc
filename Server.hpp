@@ -10,7 +10,6 @@ class Server
 {
 private:
 	struct {
-		std::string host;
 		std::string port;
 		std::string name;
 		std::string password;
@@ -20,7 +19,9 @@ private:
 		time_t activity_timeout;
 		time_t ping_timeout;
 		size_t max_message_length;
-		size_t max_nick_length;
+		size_t max_nickname_length;
+		size_t max_server_name_length;
+		size_t max_channel_name_length;
 
 		struct {
 			std::string nickname;
@@ -44,6 +45,7 @@ private:
 public:
 	Server(const std::string &port, const std::string &pass);
 	~Server();
+	bool verify_server_name();
 	void create_channel(const std::string &name, const std::string &key, const std::string &topic);
 	void run();
 	void accept_connections();

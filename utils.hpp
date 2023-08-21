@@ -47,4 +47,35 @@ std::string to_string(T v)
 	return ss.str();
 }
 
+template <typename T>
+T to_number(const std::string &str)
+{
+	std::istringstream iss(str);
+	T ret;
+	iss >> ret;
+	if (iss.fail() || !iss.eof())
+		throw std::runtime_error("Invalid number");
+	return ret;
+}
+
+template <typename T>
+T to_number_safe(const std::string &str)
+{
+	try {
+		return to_number<T>(str);
+	} catch (std::exception &e) {
+		return 0;
+	}
+}
+
 std::string trimstr(const std::string &str);
+
+bool verify_string(const std::string &str, int modes);
+
+enum {
+	LETTER = 1 << 0,
+	SPECIAL = 1 << 1,
+	DIGIT = 1 << 2,
+	DASH = 1 << 3,
+	USER = 1 << 4,
+};

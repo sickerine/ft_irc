@@ -32,12 +32,6 @@
 #define CYAN "\033[36m"
 #define MAGENTA "\033[35m"
 
-// #pragma region TODO
-
-// 	#define ERR_ALREADYREGISTRED
-
-// #pragma endregion
-
 #define SET_MODE_OR_ERR(t, x) \
 	case t: if (mode & x)	{ err = true; break; } mode |= x; break;
 
@@ -71,6 +65,11 @@
 #define OPTIONAL_CONF(x) (configs.find(#x) != configs.end() ? configs[#x] : "")
 #define OPTIONAL_PCONF(prefix, x) (configs.find(#x) != configs.end() ? configs[#prefix"_"#x] : "")
 
+#define REQUIRE_CONF_NUMBER(x, type) try {conf.x = to_number<type>(configs[#x]); } catch (std::exception &e) { throw std::runtime_error(std::string(#x) + " is not a number"); }
+#define REQUIRE_PCONF_NUMBER(prefix, x, type) try {conf.x = to_number<type>(configs[#prefix"_"#x]); } catch (std::exception &e) { throw std::runtime_error(std::string(#x) + " is not a number"); }
+
+
+
 class User;
 
 typedef std::map<int, User *> UserList;
@@ -99,6 +98,7 @@ enum
 	RPL_YOUREOPER = 381,
 	ERR_NOSUCHNICK = 401,
 	ERR_NOSUCHCHANNEL = 403,
+	ERR_ERRONEUSNICKNAME = 432,
 	ERR_NICKNAMEINUSE = 433,
 	ERR_USERNOTINCHANNEL = 441,
 	ERR_NOTONCHANNEL = 442,
@@ -111,7 +111,7 @@ enum
 	ERR_INVITEONLYCHAN = 473,
 	ERR_BADCHANNELKEY = 475,
 	ERR_CHANOPRIVSNEEDED = 482,
-	RPL_NOWOFF = 605
+	RPL_NOWOFF = 605,
 };
 
 enum {

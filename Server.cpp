@@ -67,44 +67,73 @@ bool Server::load_config(const std::string &filename)
 	return true;
 }
 
+bool Server::verify_server_name()
+{
+	std::string str = conf.name;
+
+	if (str.length() > conf.max_server_name_length)
+		return false;
+
+	std::vector<std::string> splits = split(str, '.', false);
+
+	if (splits.size() == 0)
+		return false;
+
+	for (size_t i = 0; i < splits.size(); i++)
+	{
+		std::string sub = splits[i];
+
+		if (splits[i].empty())
+			return false;
+		if (!verify_string(sub.substr(0, 1), LETTER | DIGIT)
+			|| !verify_string(sub.substr(sub.length() - 1), LETTER | DIGIT)
+			|| !verify_string(sub.substr(1, sub.length() - 2), LETTER | DIGIT | DASH))
+		
+		{
+			std::cout << "NOT VERIFIED " << std::endl;
+			return false;
+		}
+	}
+	return true;
+}
+
 Server::Server(const std::string &port, const std::string &pass) : running(true), info(NULL)
 {
-	insist(load_config("irc.preg"), false, "failed to load config");
+	insist(load_config("irc.yaml"), false, "failed to load config");
 
 	conf.password = pass.empty() ?  OPTIONAL_PCONF(server, password) : pass;
 	conf.port = port.empty() ? OPTIONAL_PCONF(server, port) : port;
 	REQUIRE_CONF(motd);
-	REQUIRE_PCONF(server, host);
 	REQUIRE_PCONF(server, name);
 	REQUIRE_CONF(operator_username);
 	REQUIRE_CONF(operator_password);
 	REQUIRE_CONF(operator_password);
-	conf.activity_timeout = std::atoi(configs["activity_timeout"].c_str());
-	conf.ping_timeout = std::atoi(configs["ping_timeout"].c_str());
-	conf.max_message_length = std::atoi(configs["max_message_length"].c_str());
-	conf.max_nick_length = std::atoi(configs["max_nickname_length"].c_str());
+	REQUIRE_CONF_NUMBER(activity_timeout, int);
+	REQUIRE_CONF_NUMBER(ping_timeout, int);
+	REQUIRE_CONF_NUMBER(max_message_length, int);
+	REQUIRE_CONF_NUMBER(max_nickname_length, int);
+	REQUIRE_CONF_NUMBER(max_server_name_length, int);
+	REQUIRE_CONF_NUMBER(max_channel_name_length, int);
 
 	REQUIRE_CONF(bot.nickname);
 	REQUIRE_CONF(bot.username);
 	REQUIRE_CONF(bot.realname);
-	conf.bot.fd = std::atoi(configs["bot.fd"].c_str());
+	REQUIRE_CONF_NUMBER(bot.fd, int);
+
+	insist(verify_server_name(), false, "invalid server name");
 
 	int on = 1;
-	addrinfo hints = initialized<addrinfo>();
 
-	hints.ai_family = AF_INET;
-	hints.ai_protocol = IPPROTO_TCP;
-	hints.ai_socktype = SOCK_STREAM;
+	sockaddr_in addr = initialized<sockaddr_in>();
 
-	insist(getaddrinfo(conf.host.c_str(), conf.port.c_str(), &hints, &info), -1, "getaddrinfo failed");
-	insist(info == NULL, true, "info is null");
+	addr.sin_family = AF_INET;
+	addr.sin_addr.s_addr = INADDR_ANY;
+	addr.sin_port = htons(to_number<int>(conf.port));
 
-	server_fd = socket(info->ai_family, info->ai_socktype, info->ai_protocol);
-
-	insist(server_fd, -1, "socket failed");
+	insist(server_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP), -1, "socket failed");
 	insist(setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(int)), -1, "setsockopt failed");
 	insist(fcntl(server_fd, F_SETFL, O_NONBLOCK), -1, "fcntl failed");
-	insist(bind(server_fd, info->ai_addr, info->ai_addrlen) != 0, true, "bind failed");
+	insist(bind(server_fd, (sockaddr *)&addr, sizeof(addr)) != 0, true, "bind failed");
 	insist(listen(server_fd, 69), -1, "listen failed");
 
 	pfds.push_back(make_pfd(server_fd, POLLIN, 0));
@@ -119,6 +148,7 @@ Server::~Server()
 
 void Server::create_channel(const std::string &name, const std::string &key, const std::string &topic)
 {
+	insist(verify_string(name, CHANNEL), false, "invalid channel name");
 	channels[name] = Channel(name, key, topic);
 }
 
@@ -255,25 +285,61 @@ void Server::parse_command(int fd, const std::string &cmd)
 			already_registered(fd);
 			return;
 		}
-		user->set_user(args[1]);
-		user->set_real(join(args.begin() + 4, args.end(), " "));
+
+		std::string username = args[1];
+		std::string realname = join(args.begin() + 4, args.end(), " ").substr(1);
+		bool username_valid = verify_string(username, USER);
+		bool realname_valid = verify_string(realname, LETTER);
+
+		std::cout << "username: `" << username << "`" << std::endl;
+		std::cout << "realname: `" << realname << "`" << std::endl;
+		std::cout << "username_valid: " << username_valid << std::endl;
+		std::cout << "realname_valid: " << realname_valid << std::endl;
+
+		if (!username_valid || !realname_valid)
+			return;
+
+		user->set_user(username);
+		user->set_real(realname);
 		if (user->get_registered())
 			welcome(fd);
 	}
 	else if (args[0] == "NICK")
 	{
-		if (user->get_nick() == args[1])
-			return;
+		CHECK_ARGS(2);
 
-		bool taken = find_user_by_nickname(args[1]) != NULL;
-		if (taken)
+		std::string nickname = args[1];
+		std::string nickname_first = nickname.substr(0, 1);
+		std::string nickname_rest = nickname.substr(1);
+		bool length_valid = nickname.length() <= conf.max_nickname_length;
+		bool nickname_first_valid = verify_string(nickname_first, LETTER | SPECIAL);
+		bool nickname_rest_valid = verify_string(nickname_rest, LETTER | DIGIT | SPECIAL | DASH);
+
+		std::cout << "nickname: `" << nickname << "`" << std::endl;
+		std::cout << "nickname_first: `" << nickname_first << "`" << std::endl;
+		std::cout << "nickname_rest: `" << nickname_rest << "`" << std::endl;
+		std::cout << "length_valid: " << length_valid << std::endl;
+		std::cout << "nickname_first_valid: " << nickname_first_valid << std::endl;
+		std::cout << "nickname_rest_valid: " << nickname_rest_valid << std::endl;
+
+		if (user->get_nick() == nickname)
+			return;
+		
+		if (!length_valid || !nickname_first_valid || !nickname_rest_valid)
 		{
-			send_message(fd, ":" + conf.name + " " + c(ERR_NICKNAMEINUSE) + " " + args[1] + " :" + args[1]);
+			send_message(fd, ":" + conf.name + " " + c(ERR_ERRONEUSNICKNAME) + " " + nickname + " :Erroneous nickname");
 			return;
 		}
-		user->set_nick(args[1]);
+
+		if (find_user_by_nickname(nickname) != NULL)
+		{
+			send_message(fd, ":" + conf.name + " " + c(ERR_NICKNAMEINUSE) + " " + nickname + " :" + nickname);
+			return;
+		}
+
+		user->set_nick(nickname);
 		if (user->get_registered())
-			send_message(fd, ":" + conf.name + " NICK " + args[1]);
+			send_message(fd, ":" + conf.name + " NICK " + nickname);
 		user->set_registered(true);
 		if (user->get_user() != "")
 			welcome(fd);
@@ -911,7 +977,7 @@ void Server::initialize_bot()
 	users[conf.bot.fd]->set_nick(conf.bot.nickname);
 	users[conf.bot.fd]->set_user(conf.bot.username);
 	users[conf.bot.fd]->set_real(conf.bot.realname);
-	users[conf.bot.fd]->set_host(conf.host);
+	users[conf.bot.fd]->set_host("0.0.0.0");
 	users[conf.bot.fd]->set_auth(true);
 	users[conf.bot.fd]->set_registered(true);
 	users[conf.bot.fd]->set_server_operator(true);
@@ -937,21 +1003,15 @@ bool Server::bot_parse()
 	while (std::getline(iss, line))
 	{
 		std::cout << MUSTARD << "BOT RECEIVED : `" << RESET << escape(line) << MUSTARD "`" RESET << std::endl;
-		try
-		{	
-			if (line.substr(line.length() - 1) == "\r")
-			{
-				bot_response(line);
-				users[fd]->get_sendbuffer().erase(0, line.length() + 1);
-			}
-			else
-				break;
-		}
-		catch (...)
+		if (line.substr(line.length() - 1) == "\r")
 		{
-			return false;
+			bot_response(line);
+			users[fd]->get_sendbuffer().erase(0, line.length() + 1);
 		}
+		else
+			return false;
 	}
+
 	std::cout << ORANGE "AFTER PARSING BOT DATA: " << escape(users[fd]->get_sendbuffer()) << RESET << std::endl;
 
 	return true;
@@ -967,6 +1027,10 @@ void Server::bot_response(std::string message)
 {
 	std::vector<std::string> args = split(message, ' ');
 
-	if (args[1] == "PRIVMSG")
-		users[conf.bot.fd]->append_data("PRIVMSG " + get_nickname_from_hostmask(args[0]) + " :IM A BOT\r\n");
+	if (args[1] == "PRIVMSG") {
+		if (args[3].find("fuck") != std::string::npos)
+			users[conf.bot.fd]->append_data("PRIVMSG " + get_nickname_from_hostmask(args[0]) + " :You\r\n");
+		else
+			users[conf.bot.fd]->append_data("PRIVMSG " + get_nickname_from_hostmask(args[0]) + " :IM A BOT\r\n");
+	}
 }
