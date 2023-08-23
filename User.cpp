@@ -21,7 +21,7 @@ const std::string &User::get_user() { return username; }
 void User::set_host(sockaddr &addr) { 
 	char _hostname[NI_MAXHOST];
 	int ret = getnameinfo(&addr, sizeof(addr), _hostname, sizeof(_hostname), NULL, 0, NI_NUMERICSERV);
-	// if (ret != 0)
+	if (ret != 0)
 		std::cout << GREY << "WARNING: getnameinfo error " << ret << RESET << std::endl;
 	hostname = _hostname;
 	if (hostname.empty())
