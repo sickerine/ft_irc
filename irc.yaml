@@ -1,20 +1,23 @@
+# You can have fun with these
+server_name: globalhost.fdsfd-sfds
 server_password: a
 server_port: 6900
-server_name: globalhost
 operator_username: operator
 operator_password: password
 
 activity_timeout: 3000
 ping_timeout: 30
+
+# Don't touch idiot you will break the world
 max_message_length: 512
 max_nickname_length: 9
 max_server_name_length: 63
 max_channel_name_length: 50
-
 bot.fd: -69
-bot.nickname: 8ball
+
+bot.nickname: eightball
 bot.username: 8ball
-bot.realname: Magic 8 Ball
+bot.realname: Magic Eight Ball
 
 
 channel:
@@ -29,6 +32,9 @@ channel:
 
 
 motd: kys
+motd: kys2
+motd: kys2
+motd: kys4
 
 # TO DO
 # - Verify all CHECK_ARGS

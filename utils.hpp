@@ -80,4 +80,5 @@ enum {
 	USER = 1 << 4,
 	CHANNEL = 1 << 5,
 	KEY = 1 << 6,
+	SPACE = 1 << 7,
 };

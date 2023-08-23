@@ -22,7 +22,7 @@ private:
 		std::string password;
 		std::string operator_username;
 		std::string operator_password;
-		std::string motd;
+		std::vector<std::string> motd;
 		time_t activity_timeout;
 		time_t ping_timeout;
 		size_t max_message_length;
@@ -81,6 +81,7 @@ public:
 	void already_registered(int fd);
 	bool load_config(const std::string &filename);
 	bool load_config_channel(std::ifstream &file);
+	bool verify_nickname(const std::string &str);
 
 	void initialize_bot();
 	bool bot_parse();

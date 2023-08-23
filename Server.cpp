@@ -2,6 +2,17 @@
 #include "Channel.hpp"
 #include "User.hpp"
 
+bool Server::verify_nickname(const std::string &nickname)
+{
+	std::string nickname_first = nickname.substr(0, 1);
+	std::string nickname_rest = nickname.substr(1);
+	bool length_valid = nickname.length() <= conf.max_nickname_length;
+	bool nickname_first_valid = verify_string(nickname_first, LETTER | SPECIAL);
+	bool nickname_rest_valid = verify_string(nickname_rest, LETTER | DIGIT | SPECIAL | DASH);
+
+	return length_valid && nickname_first_valid && nickname_rest_valid;
+}
+
 bool Server::load_config_channel(std::ifstream &file)
 {
 	std::string ele[3];
@@ -54,12 +65,12 @@ bool Server::load_config(const std::string &filename)
 			if (load_config_channel(file))
 				continue;
 			return false;
+		} else if (args[0] == "motd") {
+			conf.motd.push_back(join(args.begin() + 1, args.end(), ":"));
+			continue;
 		}
 		if (args.size() < 2)
-		{
-			std::cout << "args.size() < 2" << std::endl;
 			return false;
-		}
 		std::string key = trimstr(args[0]);
 		std::string value = trimstr(args[1]);
 		if (key.empty() || value.empty())
@@ -81,6 +92,9 @@ bool Server::verify_server_name()
 
 	std::vector<std::string> splits = split(str, '.', false);
 
+	if (str.back() == '.')
+		return false;
+
 	if (splits.size() == 0)
 		return false;
 
@@ -93,11 +107,7 @@ bool Server::verify_server_name()
 		if (!verify_string(sub.substr(0, 1), LETTER | DIGIT)
 			|| !verify_string(sub.substr(sub.length() - 1), LETTER | DIGIT)
 			|| !verify_string(sub.substr(1, sub.length() - 2), LETTER | DIGIT | DASH))
-		
-		{
-			std::cout << "NOT VERIFIED " << std::endl;
 			return false;
-		}
 	}
 	return true;
 }
@@ -108,10 +118,8 @@ Server::Server(const std::string &port, const std::string &pass) : running(true)
 
 	conf.password = pass.empty() ?  OPTIONAL_PCONF(server, password) : pass;
 	conf.port = port.empty() ? OPTIONAL_PCONF(server, port) : port;
-	REQUIRE_CONF(motd);
 	REQUIRE_PCONF(server, name);
 	REQUIRE_CONF(operator_username);
-	REQUIRE_CONF(operator_password);
 	REQUIRE_CONF(operator_password);
 	REQUIRE_CONF_NUMBER(activity_timeout, int);
 	REQUIRE_CONF_NUMBER(ping_timeout, int);
@@ -126,6 +134,13 @@ Server::Server(const std::string &port, const std::string &pass) : running(true)
 	REQUIRE_CONF_NUMBER(bot.fd, int);
 
 	insist(verify_server_name(), false, "invalid server name");
+	insist(verify_string(conf.password, KEY), false, "invalid password");
+	insist(verify_string(conf.operator_username, USER), false, "invalid operator username");
+	insist(verify_string(conf.operator_password, KEY), false, "invalid operator password");
+	insist(verify_nickname(conf.bot.nickname), false, "invalid bot nickname");
+	insist(verify_string(conf.bot.username, USER), false, "invalid bot username");
+	insist(verify_string(conf.bot.realname, LETTER | SPACE), false, "invalid bot realname");
+	insist(conf.bot.fd < 0, false, "invalid bot fd");
 
 	int on = 1;
 
@@ -206,7 +221,7 @@ void Server::receive_data(int fd)
 			break;
 
 		buffer[length] = 0;
-		std::cout << RED << "APPENDING: " << escape(buffer) << RESET << std::endl;
+		// std::cout << RED << "APPENDING: " << escape(buffer) << RESET << std::endl;
 		users[fd]->append_data(std::string(buffer));
 		users[fd]->set_last_activity();
 	}
@@ -217,7 +232,8 @@ void Server::welcome(int fd)
 	send_message(fd, ":" + conf.name + " " + c(RPL_WELCOME) + " " + users[fd]->get_nick() + " :kys " + users[fd]->get_nick() + "!" + users[fd]->get_user() + "@" + conf.name);
 	send_message(fd, ":" + conf.name + " " + c(RPL_ISUPPORT) + " " + users[fd]->get_nick() + " CHANMODES=k,l,it :are supported by this server"); 
 	send_message(fd, ":" + conf.name + " " + c(RPL_STARTOFMOTD) + " " + users[fd]->get_user() + " :- " + conf.name + " Message of the Day -");
-	send_message(fd, ":" + conf.name + " " + c(RPL_MOTD) + " " + users[fd]->get_nick() + " :- " + conf.motd);
+	for (size_t i = 0; i < conf.motd.size(); i++)
+		send_message(fd, ":" + conf.name + " " + c(RPL_MOTD) + " " + users[fd]->get_nick() + " :- " + conf.motd[i]);
 	send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFMOTD) + " " + users[fd]->get_user() + " :End of /MOTD command.");
 }
 
@@ -262,7 +278,7 @@ void Server::parse_command(int fd, const std::string &cmd)
 		std::string username = args[1];
 		std::string realname = join(args.begin() + 4, args.end(), " ").substr(1);
 		bool username_valid = verify_string(username, USER);
-		bool realname_valid = verify_string(realname, LETTER);
+		bool realname_valid = verify_string(realname, LETTER | SPACE);
 
 		if (!username_valid || !realname_valid)
 			return;
@@ -277,16 +293,11 @@ void Server::parse_command(int fd, const std::string &cmd)
 		CHECK_ARGS(2);
 
 		std::string nickname = args[1];
-		std::string nickname_first = nickname.substr(0, 1);
-		std::string nickname_rest = nickname.substr(1);
-		bool length_valid = nickname.length() <= conf.max_nickname_length;
-		bool nickname_first_valid = verify_string(nickname_first, LETTER | SPECIAL);
-		bool nickname_rest_valid = verify_string(nickname_rest, LETTER | DIGIT | SPECIAL | DASH);
 
 		if (user->get_nick() == nickname)
 			return;
 		
-		if (!length_valid || !nickname_first_valid || !nickname_rest_valid)
+		if (!verify_nickname(nickname))
 		{
 			send_message(fd, ":" + conf.name + " " + c(ERR_ERRONEUSNICKNAME) + " " + nickname + " :Erroneous nickname");
 			return;
@@ -294,13 +305,21 @@ void Server::parse_command(int fd, const std::string &cmd)
 
 		if (find_user_by_nickname(nickname) != NULL)
 		{
-			send_message(fd, ":" + conf.name + " " + c(ERR_NICKNAMEINUSE) + " " + nickname + " :" + nickname);
+			send_message(fd, ":" + conf.name + " " + c(ERR_NICKNAMEINUSE) + " " + nickname + " :" + nickname + " is already in use");
 			return;
 		}
 
-		user->set_nick(nickname);
 		if (user->get_registered())
-			send_message(fd, ":" + conf.name + " NICK " + nickname);
+		{
+			for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); it++)
+			{
+				if (it->second.has_user(fd))
+					broadcast_message(it->second, ":" + user->get_hostmask(user->get_nick()) + " NICK :" + nickname);
+			}
+			user->set_nick(nickname);
+			return ;
+		}
+		user->set_nick(nickname);
 		user->set_registered(true);
 		if (user->get_user() != "")
 			welcome(fd);
@@ -333,10 +352,25 @@ void Server::parse_command(int fd, const std::string &cmd)
 
 		if (args.size() > 2)
 			keys = split(args[2], ',');
+		
+
 
 		for (size_t i = 0; i < params.size(); i++)
 		{
 			std::string channel_key = keys.size() > i ? keys[i] : "";
+			bool will_become_operator_in_the_near_future = false;
+
+			if (channels.find(params[i]) == channels.end()
+					&& params[i].length() >= 2
+					&& params[i][0] == '#'
+					&& verify_string(params[i], CHANNEL) && params[i].length() <= 50
+					&& verify_string(channel_key, KEY) && channel_key.length() <= 23
+				) {
+				create_channel(params[i], channel_key, "");
+				will_become_operator_in_the_near_future = true;
+			}
+
+
 			if (channels.find(params[i]) != channels.end())
 			{
 				Channel &channel = channels[params[i]];
@@ -350,6 +384,8 @@ void Server::parse_command(int fd, const std::string &cmd)
 						else
 						{
 							channel.remove_invite(user);
+							if (will_become_operator_in_the_near_future)
+								channel.add_operator(user);
 							broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " JOIN :" + params[i]);
 							send_message(fd, ":" + conf.name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
 							send_message(fd, ":" + conf.name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
@@ -536,8 +572,6 @@ void Server::parse_command(int fd, const std::string &cmd)
 			no_such_nick(fd, args[1]);
 			return;
 		}
-
-		std::cout << "target: " << target->get_nick() << std::endl;
 
 		if (user->is_server_operator() || channel.is_operator(user))
 		{
@@ -737,11 +771,11 @@ void Server::parse_data(int fd)
 	std::istringstream iss(users[fd]->get_data());
 	std::string line;
 
-	std::cout << RED "PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
+	// std::cout << RED "PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
 
 	while (std::getline(iss, line))
 	{
-		std::cout << YELLOW << "Received from " << RESET << fd << YELLOW ": `" RESET << escape(line) << YELLOW "`" RESET << std::endl;
+		// std::cout << YELLOW << "Received from " << RESET << fd << YELLOW ": `" RESET << escape(line) << YELLOW "`" RESET << std::endl;
 		try
 		{
 			if (line.length() > conf.max_message_length)
@@ -762,7 +796,7 @@ void Server::parse_data(int fd)
 			return;
 		}
 	}
-	std::cout << RED "AFTER PARSING DATA: " << escape(users[fd]->get_data()) << RESET << std::endl;
+	// std::cout << RED "AFTER PARSING DATA: " << escape(users[fd]->get_data()) << RESET << std::endl;
 }
 
 void Server::process_events(int fd, int revents)
@@ -858,7 +892,10 @@ void Server::terminate_connection(int fd)
 {
 	close(fd);
 	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); ++it)
+	{
+		broadcast_message(it->second, ":" + users[fd]->get_hostmask(users[fd]->get_nick()) + " QUIT :Connection closed");
 		it->second.remove_user(fd);
+	}
 	users.erase(fd);
 	for (std::vector<pollfd>::iterator it = pfds.begin(); it != pfds.end(); ++it)
 	{
@@ -959,11 +996,11 @@ bool Server::bot_parse()
 	std::istringstream iss(users[fd]->get_sendbuffer());
 	std::string line;
 
-	std::cout << ORANGE "BOT PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
+	// std::cout << ORANGE "BOT PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
 
 	while (std::getline(iss, line))
 	{
-		std::cout << MUSTARD << "BOT RECEIVED : `" << RESET << escape(line) << MUSTARD "`" RESET << std::endl;
+		// std::cout << MUSTARD << "BOT RECEIVED : `" << RESET << escape(line) << MUSTARD "`" RESET << std::endl;
 		if (line.substr(line.length() - 1) == "\r")
 		{
 			bot_response(line);
@@ -973,7 +1010,7 @@ bool Server::bot_parse()
 			return false;
 	}
 
-	std::cout << ORANGE "AFTER PARSING BOT DATA: " << escape(users[fd]->get_sendbuffer()) << RESET << std::endl;
+	// std::cout << ORANGE "AFTER PARSING BOT DATA: " << escape(users[fd]->get_sendbuffer()) << RESET << std::endl;
 
 	return true;
 }
@@ -997,8 +1034,8 @@ void Server::bot_response(std::string message)
 		"Outlook not so good", "Very doubtful"
 	};
 
-	for (size_t i = 0; i < args.size(); i++)
-		std::cout << "args[" << i << "] = " << args[i] << std::endl;
+	// for (size_t i = 0; i < args.size(); i++)
+	// 	std::cout << "args[" << i << "] = " << args[i] << std::endl;
 
 	if (args[1] == "PRIVMSG") {
 		std::srand(time(NULL));

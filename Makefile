@@ -1,7 +1,7 @@
 NAME=ircserv
 FILES=main.cpp Server.cpp User.cpp Channel.cpp utils.cpp
 FILES_O=$(FILES:.cpp=.o)
-CPPFLAGS=-Wall -Werror -Wextra -fsanitize=address -std=c++98 -g
+CPPFLAGS=-Wall -Werror -Wextra -std=c++98 -fsanitize=address  -g
 CXX=c++
 
 all: $(NAME)
