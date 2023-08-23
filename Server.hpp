@@ -9,7 +9,14 @@ class Server;
 class Server
 {
 private:
-	struct {
+
+	struct map_string_comparator : std::binary_function<std::string, std::string, bool>
+	{
+		bool operator()(const std::string &s1, const std::string &s2) const;
+	};
+
+	struct
+	{
 		std::string port;
 		std::string name;
 		std::string password;
@@ -23,7 +30,8 @@ private:
 		size_t max_server_name_length;
 		size_t max_channel_name_length;
 
-		struct {
+		struct
+		{
 			std::string nickname;
 			std::string username;
 			std::string realname;
@@ -40,8 +48,9 @@ private:
 	// IRC stuff
 	UserList users;
 	UserList operators;
-	std::map<std::string, Channel> channels;
+	std::map<std::string, Channel, map_string_comparator> channels;
 	std::map<std::string, std::string> configs;
+
 public:
 	Server(const std::string &port, const std::string &pass);
 	~Server();
@@ -55,7 +64,7 @@ public:
 	void parse_data(int fd);
 	void process_events(int fd, int revents);
 	void send_message(int fd, const std::string &message);
-	void broadcast_message(Channel & channel, const std::string &message, User *except = NULL);
+	void broadcast_message(Channel &channel, const std::string &message, User *except = NULL);
 	void server_broadcast_message(const std::string &message, User *except = NULL);
 	static pollfd make_pfd(int fd, int events, int revents);
 	void terminate_connection(int fd);
@@ -77,4 +86,3 @@ public:
 	bool bot_parse();
 	void bot_response(std::string message);
 };
- 

@@ -18,11 +18,16 @@ bool Server::load_config_channel(std::ifstream &file)
 	{
 		ele[i] = trimstr(ele[i]);
 		std::vector<std::string> subargs = split(ele[i], ':', false);
-
 		subargs.push_back("");
-		if (subargs[0] == "- name")			name = "#" + trimstr(subargs[1]);
-		else if (subargs[0] == "- key")		key = trimstr(subargs[1]);
-		else if (subargs[0] == "- topic")	topic = trimstr(subargs[1]);
+
+		std::string key = trimstr(subargs[0]);
+		std::string value = "";
+		if (subargs.size() > 1)
+			value = trimstr(join(subargs.begin() + 1, subargs.end() - 1, ":"));
+
+		if (key == "- name")			name = "#" + value;
+		else if (key == "- key")		key = value;
+		else if (key == "- topic")	topic = value;
 		else return false;
 	}
 	if (name.empty())
@@ -148,7 +153,11 @@ Server::~Server()
 
 void Server::create_channel(const std::string &name, const std::string &key, const std::string &topic)
 {
-	insist(verify_string(name, CHANNEL), false, "invalid channel name");
+	std::cout << "checking: " << name << std::endl;
+	insist(verify_string(name, CHANNEL) && name.length() <= 50, false, "invalid channel name");
+	insist(channels.find(name) == channels.end(), false, "channel already exists");
+	insist(verify_string(key, KEY) && key.length() <= 23, false, "invalid channel key");
+	std::cout << name << ": " <<  verify_string(name, CHANNEL) << std::endl;
 	channels[name] = Channel(name, key, topic);
 }
 
@@ -1026,11 +1035,42 @@ std::string get_nickname_from_hostmask(std::string hostmask)
 void Server::bot_response(std::string message)
 {
 	std::vector<std::string> args = split(message, ' ');
+	static std::string all_responses[] = {
+		"It is certain", "It is decidedly so", "Without a doubt",
+		"Yes definitely", "You may rely on it", "As I see it, yes",
+		"Most likely", "Outlook good", "Yes", "Signs point to yes",
+		"Reply hazy try again", "Ask again later", "Better not tell you now",
+		"Cannot predict now", "Concentrate and ask again",
+		"Don't count on it", "My reply is no", "My sources say no",
+		"Outlook not so good", "Very doubtful"
+	};
+
+	for (size_t i = 0; i < args.size(); i++)
+		std::cout << "args[" << i << "] = " << args[i] << std::endl;
 
 	if (args[1] == "PRIVMSG") {
-		if (args[3].find("fuck") != std::string::npos)
-			users[conf.bot.fd]->append_data("PRIVMSG " + get_nickname_from_hostmask(args[0]) + " :You\r\n");
-		else
-			users[conf.bot.fd]->append_data("PRIVMSG " + get_nickname_from_hostmask(args[0]) + " :IM A BOT\r\n");
+		std::srand(time(NULL));
+
+		std::string received_message = join(args.begin() + 3, args.end(), " ");
+		int random_idx = std::rand() % sizeof(all_responses) / sizeof(std::string);
+		bool forced_response = received_message.find("fuck") != std::string::npos;
+		std::string direction = get_nickname_from_hostmask(args[0]);
+		std::string response = forced_response ? "you" : all_responses[random_idx];
+
+
+		if (args[2] != conf.bot.nickname)
+			direction = args[2];
+
+		if (received_message.find(conf.bot.nickname) != std::string::npos || args[2] == conf.bot.nickname || forced_response)
+			users[conf.bot.fd]->append_data("PRIVMSG " + direction + " :" + response + "\r\n");
 	}
+}
+
+bool Server::map_string_comparator::operator()(const std::string &s1, const std::string &s2) const
+{
+	std::string s1_upper(s1);
+	std::string s2_upper(s2);
+	std::transform(s1_upper.begin(), s1_upper.end(), s1_upper.begin(), ::toupper);
+	std::transform(s2_upper.begin(), s2_upper.end(), s2_upper.begin(), ::toupper);
+	return (s1_upper < s2_upper);
 }

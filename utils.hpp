@@ -78,4 +78,6 @@ enum {
 	DIGIT = 1 << 2,
 	DASH = 1 << 3,
 	USER = 1 << 4,
+	CHANNEL = 1 << 5,
+	KEY = 1 << 6,
 };

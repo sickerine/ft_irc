@@ -97,8 +97,10 @@ bool verify_string(const std::string &str, int modes)
 	if (modes & DASH)
 		allowedset += "-";
 	if (modes & USER)
-		return str.find_first_of("\r\n @:") == std::string::npos;
+		return str.find_first_of("\r\n @") == std::string::npos;
 	if (modes & CHANNEL)
 		return str.find_first_of("\a\r\n ,:") == std::string::npos;
+	if (modes & KEY)
+		return str.find_first_of("\r\n\f\t\v ") == std::string::npos;
 	return str.find_first_not_of(allowedset) == std::string::npos;
 }
