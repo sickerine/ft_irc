@@ -31,6 +31,7 @@
 #define PURPLE "\033[35m"
 #define CYAN "\033[36m"
 #define MAGENTA "\033[35m"
+#define GREY "\033[38;5;244m"
 
 #define SET_MODE_OR_ERR(t, x) \
 	case t: if (mode & x)	{ err = true; break; } mode |= x; break;

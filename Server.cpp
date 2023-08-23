@@ -153,11 +153,9 @@ Server::~Server()
 
 void Server::create_channel(const std::string &name, const std::string &key, const std::string &topic)
 {
-	std::cout << "checking: " << name << std::endl;
 	insist(verify_string(name, CHANNEL) && name.length() <= 50, false, "invalid channel name");
 	insist(channels.find(name) == channels.end(), false, "channel already exists");
 	insist(verify_string(key, KEY) && key.length() <= 23, false, "invalid channel key");
-	std::cout << name << ": " <<  verify_string(name, CHANNEL) << std::endl;
 	channels[name] = Channel(name, key, topic);
 }
 
@@ -208,7 +206,7 @@ void Server::receive_data(int fd)
 			break;
 
 		buffer[length] = 0;
-		std::cout << RED << "APPENDIGN: " << buffer << RESET << std::endl;
+		std::cout << RED << "APPENDING: " << escape(buffer) << RESET << std::endl;
 		users[fd]->append_data(std::string(buffer));
 		users[fd]->set_last_activity();
 	}
@@ -271,14 +269,8 @@ void Server::parse_command(int fd, const std::string &cmd)
 				return;
 			}
 
-			std::cout << "pass: `" << args[1] << "`" << std::endl;
 			if (args[1] == conf.password)
-			{
-				std::cout << "yes" << std::endl;
 				user->set_auth(true);
-			}
-			else
-				std::cout << "no" << std::endl;
 		}
 		else if (args[0] != "CAP" && args[0] != "PROTOCTL" && args[0] != "PONG")
 		{
@@ -300,11 +292,6 @@ void Server::parse_command(int fd, const std::string &cmd)
 		bool username_valid = verify_string(username, USER);
 		bool realname_valid = verify_string(realname, LETTER);
 
-		std::cout << "username: `" << username << "`" << std::endl;
-		std::cout << "realname: `" << realname << "`" << std::endl;
-		std::cout << "username_valid: " << username_valid << std::endl;
-		std::cout << "realname_valid: " << realname_valid << std::endl;
-
 		if (!username_valid || !realname_valid)
 			return;
 
@@ -323,13 +310,6 @@ void Server::parse_command(int fd, const std::string &cmd)
 		bool length_valid = nickname.length() <= conf.max_nickname_length;
 		bool nickname_first_valid = verify_string(nickname_first, LETTER | SPECIAL);
 		bool nickname_rest_valid = verify_string(nickname_rest, LETTER | DIGIT | SPECIAL | DASH);
-
-		std::cout << "nickname: `" << nickname << "`" << std::endl;
-		std::cout << "nickname_first: `" << nickname_first << "`" << std::endl;
-		std::cout << "nickname_rest: `" << nickname_rest << "`" << std::endl;
-		std::cout << "length_valid: " << length_valid << std::endl;
-		std::cout << "nickname_first_valid: " << nickname_first_valid << std::endl;
-		std::cout << "nickname_rest_valid: " << nickname_rest_valid << std::endl;
 
 		if (user->get_nick() == nickname)
 			return;

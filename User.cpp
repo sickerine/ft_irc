@@ -18,7 +18,15 @@ const std::string &User::get_nick() { return nickname; }
 void User::set_user(const std::string &user) { username = user; }
 const std::string &User::get_user() { return username; }
 
-void User::set_host(sockaddr &addr) { hostname = inet_ntoa(((sockaddr_in *)&addr)->sin_addr); }
+void User::set_host(sockaddr &addr) { 
+	char _hostname[NI_MAXHOST];
+	int ret = getnameinfo(&addr, sizeof(addr), _hostname, sizeof(_hostname), NULL, 0, NI_NUMERICSERV);
+	// if (ret != 0)
+		std::cout << GREY << "WARNING: getnameinfo error " << ret << RESET << std::endl;
+	hostname = _hostname;
+	if (hostname.empty())
+		hostname = inet_ntoa(((sockaddr_in *)&addr)->sin_addr);
+}
 void User::set_host(const std::string &host) { hostname = host; }
 const std::string &User::get_host() { return hostname; }
 
