@@ -16,7 +16,6 @@ bot.nickname: 8ball
 bot.username: 8ball
 bot.realname: Magic 8 Ball
 
-
 channel:
   - name: global
   - key: 
@@ -27,11 +26,8 @@ channel:
   - key: abcdef
   - topic: NSFW
 
-
 motd: kys
 
 # TO DO
 # - Verify all CHECK_ARGS
 # - Split bonus and mandatory
-
-

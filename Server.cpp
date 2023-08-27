@@ -25,10 +25,14 @@ bool Server::load_config_channel(std::ifstream &file)
 		if (subargs.size() > 1)
 			value = trimstr(join(subargs.begin() + 1, subargs.end() - 1, ":"));
 
-		if (key == "- name")			name = "#" + value;
-		else if (key == "- key")		key = value;
-		else if (key == "- topic")	topic = value;
-		else return false;
+		if (key == "- name")
+			name = "#" + value;
+		else if (key == "- key")
+			key = value;
+		else if (key == "- topic")
+			topic = value;
+		else
+			return false;
 	}
 	if (name.empty())
 		return false;
@@ -50,7 +54,8 @@ bool Server::load_config(const std::string &filename)
 		if (line.empty() || line[0] == '#')
 			continue;
 		std::vector<std::string> args = split(line, ':', false);
-		if (args[0] == "channel") {
+		if (args[0] == "channel")
+		{
 			if (load_config_channel(file))
 				continue;
 			return false;
@@ -90,10 +95,8 @@ bool Server::verify_server_name()
 
 		if (splits[i].empty())
 			return false;
-		if (!verify_string(sub.substr(0, 1), LETTER | DIGIT)
-			|| !verify_string(sub.substr(sub.length() - 1), LETTER | DIGIT)
-			|| !verify_string(sub.substr(1, sub.length() - 2), LETTER | DIGIT | DASH))
-		
+		if (!verify_string(sub.substr(0, 1), LETTER | DIGIT) || !verify_string(sub.substr(sub.length() - 1), LETTER | DIGIT) || !verify_string(sub.substr(1, sub.length() - 2), LETTER | DIGIT | DASH))
+
 		{
 			std::cout << "NOT VERIFIED " << std::endl;
 			return false;
@@ -106,7 +109,7 @@ Server::Server(const std::string &port, const std::string &pass) : running(true)
 {
 	insist(load_config("irc.yaml"), false, "failed to load config");
 
-	conf.password = pass.empty() ?  OPTIONAL_PCONF(server, password) : pass;
+	conf.password = pass.empty() ? OPTIONAL_PCONF(server, password) : pass;
 	conf.port = port.empty() ? OPTIONAL_PCONF(server, port) : port;
 	REQUIRE_CONF(motd);
 	REQUIRE_PCONF(server, name);
@@ -215,10 +218,489 @@ void Server::receive_data(int fd)
 void Server::welcome(int fd)
 {
 	send_message(fd, ":" + conf.name + " " + c(RPL_WELCOME) + " " + users[fd]->get_nick() + " :kys " + users[fd]->get_nick() + "!" + users[fd]->get_user() + "@" + conf.name);
-	send_message(fd, ":" + conf.name + " " + c(RPL_ISUPPORT) + " " + users[fd]->get_nick() + " CHANMODES=k,l,it :are supported by this server"); 
+	send_message(fd, ":" + conf.name + " " + c(RPL_ISUPPORT) + " " + users[fd]->get_nick() + " CHANMODES=k,l,it :are supported by this server");
 	send_message(fd, ":" + conf.name + " " + c(RPL_STARTOFMOTD) + " " + users[fd]->get_user() + " :- " + conf.name + " Message of the Day -");
 	send_message(fd, ":" + conf.name + " " + c(RPL_MOTD) + " " + users[fd]->get_nick() + " :- " + conf.motd);
 	send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFMOTD) + " " + users[fd]->get_user() + " :End of /MOTD command.");
+}
+
+void Server::USER(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(5);
+
+	if (user->get_user() != "")
+	{
+		already_registered(fd);
+		return;
+	}
+
+	std::string username = args[1];
+	std::string realname = join(args.begin() + 4, args.end(), " ").substr(1);
+	bool username_valid = verify_string(username, USERNAME);
+	bool realname_valid = verify_string(realname, LETTER);
+
+	if (!username_valid || !realname_valid)
+		return;
+
+	user->set_user(username);
+	user->set_real(realname);
+	if (user->get_registered())
+		welcome(fd);
+	return;
+}
+
+void Server::NICK(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(2);
+
+	std::string nickname = args[1];
+	std::string nickname_first = nickname.substr(0, 1);
+	std::string nickname_rest = nickname.substr(1);
+	bool length_valid = nickname.length() <= conf.max_nickname_length;
+	bool nickname_first_valid = verify_string(nickname_first, LETTER | SPECIAL);
+	bool nickname_rest_valid = verify_string(nickname_rest, LETTER | DIGIT | SPECIAL | DASH);
+
+	if (user->get_nick() == nickname)
+		return;
+
+	if (!length_valid || !nickname_first_valid || !nickname_rest_valid)
+	{
+		send_message(fd, ":" + conf.name + " " + c(ERR_ERRONEUSNICKNAME) + " " + nickname + " :Erroneous nickname");
+		return;
+	}
+
+	if (find_user_by_nickname(nickname) != NULL)
+	{
+		send_message(fd, ":" + conf.name + " " + c(ERR_NICKNAMEINUSE) + " " + nickname + " :" + nickname);
+		return;
+	}
+
+	user->set_nick(nickname);
+	if (user->get_registered())
+		send_message(fd, ":" + conf.name + " NICK " + nickname);
+	user->set_registered(true);
+	if (user->get_user() != "")
+		welcome(fd);
+}
+
+void Server::LIST(int fd, User *user, std::vector<std::string> &args)
+{
+	(void)args;
+
+	send_message(fd, ":" + conf.name + " " + c(RPL_LISTSTART) + " " + user->get_nick() + " Channel :Users Name");
+	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); it++)
+		send_message(fd, ":" + conf.name + " " + c(RPL_LIST) + " " + user->get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :" + it->second.get_topic());
+	send_message(fd, ":" + conf.name + " " + c(RPL_LISTEND) + " " + user->get_nick() + " :End of /LIST");
+}
+
+void Server::QUIT(int fd, User *user, std::vector<std::string> &args)
+{
+	(void)user;
+	(void)args;
+
+	terminate_connection(fd);
+	throw std::runtime_error("connection terminated");
+}
+
+void Server::JOIN(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(2);
+
+	std::vector<std::string> params = split(args[1], ',');
+
+	if (params.size() < 1)
+	{
+		need_more_params(fd, args[0]);
+		return;
+	}
+
+	std::vector<std::string> keys;
+
+	if (args.size() > 2)
+		keys = split(args[2], ',');
+
+	for (size_t i = 0; i < params.size(); i++)
+	{
+		std::string channel_key = keys.size() > i ? keys[i] : "";
+		if (channels.find(params[i]) != channels.end())
+		{
+			Channel &channel = channels[params[i]];
+			if (channel.is_invited(user))
+			{
+				if (!channel.has_mode(MODE_LIMIT) || channel.get_users().size() < channel.get_limit())
+				{
+					int ret = channel.add_user(fd, user, channel_key);
+					if (ret == ERR_BADCHANNELKEY)
+						send_message(fd, ":" + conf.name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
+					else
+					{
+						channel.remove_invite(user);
+						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " JOIN :" + params[i]);
+						send_message(fd, ":" + conf.name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
+						send_message(fd, ":" + conf.name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
+						send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
+					}
+				}
+				else
+					send_message(fd, ":" + conf.name + " " + c(ERR_CHANNELISFULL) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+l)");
+			}
+			else
+				send_message(fd, ":" + conf.name + " " + c(ERR_INVITEONLYCHAN) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+i)");
+		}
+		else
+			no_such_channel(fd, params[i]);
+	}
+}
+
+void Server::WHO(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(2);
+	CHECK_CHANNEL(args[1]);
+
+	std::vector<std::string> who_list = channel.get_who_list();
+
+	for (size_t i = 0; i < who_list.size(); i++)
+		send_message(fd, ":" + conf.name + " " + c(RPL_WHOREPLY) + " " + user->get_nick() + " " + args[1] + " " + who_list[i]);
+	send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFWHO) + " " + user->get_nick() + " " + args[1] + " :End of /WHO list");
+}
+
+void Server::PRIVMSG(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(3);
+
+	std::string message = join(args.begin() + 2, args.end(), " ");
+	if (args[1][0] == '#')
+	{
+		CHECK_CHANNEL(args[1]);
+
+		if (!channel.has_user(fd))
+		{
+			not_on_channel(fd, args[1]);
+			return;
+		}
+
+		broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " PRIVMSG " + args[1] + " " + message, users[fd]);
+	}
+	else
+	{
+		User *target = find_user_by_nickname(args[1]);
+		if (target == NULL)
+		{
+			no_such_nick(fd, args[1]);
+			return;
+		}
+
+		send_message(target->get_fd(), ":" + user->get_hostmask(user->get_nick()) + " PRIVMSG " + target->get_nick() + " " + message);
+	}
+}
+
+void Server::ISON(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(2);
+
+	if (args[1][0] == '#')
+	{
+		if (channels.find(args[1]) == channels.end())
+		{
+			send_message(fd, ":" + conf.name + " " + c(RPL_NOWOFF) + " " + user->get_nick() + " " + args[1] + " :" + args[1] + " * * 0 is offline");
+			return;
+		}
+	}
+	else
+	{
+		User *user = find_user_by_nickname(args[1]);
+		if (user == NULL)
+		{
+			send_message(fd, ":" + conf.name + " " + c(RPL_ISON) + " " + user->get_nick() + " :" + args[1]);
+			return;
+		}
+	}
+	send_message(fd, ":" + conf.name + " " + c(RPL_ISON) + " " + user->get_nick() + " :");
+}
+
+void Server::PART(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(3);
+	CHECK_CHANNEL(args[1]);
+
+	if (!channel.has_user(fd))
+	{
+		not_on_channel(fd, args[1]);
+		return;
+	}
+
+	broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " PART " + args[1] + " " + join(args.begin() + 2, args.end(), " "));
+
+	channel.remove_user(fd);
+}
+
+void Server::PING(int fd, User *user, std::vector<std::string> &args)
+{
+	(void)user;
+
+	std::string message = join(args.begin() + 1, args.end(), " ");
+	send_message(fd, ":" + conf.name + " PONG " + conf.name + " :" + message);
+}
+
+void Server::OPER(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(3);
+
+	bool authenticated = args[1] == conf.operator_username && args[2] == conf.operator_password;
+	if (authenticated)
+	{
+		operators[fd] = user;
+		user->set_server_operator(true);
+		send_message(fd, ":" + conf.name + " " + c(RPL_YOUREOPER) + " " + user->get_nick() + " :You are now an IRC operator");
+		server_broadcast_message(":" + conf.name + " MODE " + user->get_nick() + " :+o");
+	}
+	else
+	{
+		send_message(fd, ":" + conf.name + " " + c(ERR_PASSWDMISMATCH) + " " + user->get_nick() + " :Password incorrect");
+	}
+}
+
+void Server::KICK(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(3);
+	CHECK_CHANNEL(args[1]);
+
+	if (!channel.has_user(fd))
+	{
+		not_on_channel(fd, args[1]);
+		return;
+	}
+
+	OPER_START();
+	User *target = find_user_by_nickname(args[2]);
+
+	if (target == NULL)
+	{
+		no_such_nick(fd, args[2]);
+		return;
+	}
+
+	if (channel.has_user(target->get_fd()))
+	{
+		broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " KICK " + args[1] + " " + args[2] + " :");
+		channel.remove_user(target->get_fd());
+	}
+	else
+		user_not_in_channel(fd, args[2], channel.get_name());
+	OPER_END();
+}
+
+void Server::INVITE(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(3);
+	CHECK_CHANNEL(args[2]);
+
+	if (!channel.has_user(fd))
+	{
+		not_on_channel(fd, args[2]);
+		return;
+	}
+
+	User *target = find_user_by_nickname(args[1]);
+
+	if (target == NULL)
+	{
+		no_such_nick(fd, args[1]);
+		return;
+	}
+
+	std::cout << "target: " << target->get_nick() << std::endl;
+
+	if (user->is_server_operator() || channel.is_operator(user))
+	{
+		if (channel.has_user(target->get_fd()))
+		{
+			send_message(fd, ":" + conf.name + " " + c(ERR_USERONCHANNEL) + " " + user->get_nick() + " " + args[1] + " " + args[2] + " :is already on channel");
+			return;
+		}
+		send_message(target->get_fd(), ":" + user->get_hostmask(user->get_nick()) + " INVITE " + target->get_nick() + " " + args[2]);
+		send_message(fd, ":" + conf.name + " " + c(RPL_INVITING) + " " + user->get_nick() + " " + args[1] + " " + args[2]);
+		channel.invite(target);
+	}
+	else
+		channel_operator_privileges_needed(fd, channel.get_name());
+}
+
+void Server::TOPIC(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(2);
+	CHECK_CHANNEL(args[1]);
+
+	if (!channel.has_user(fd))
+	{
+		not_on_channel(fd, args[1]);
+		return;
+	}
+
+	if (args.size() == 2)
+	{
+		send_message(fd, ":" + conf.name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + args[1] + " :" + channel.get_topic());
+		return;
+	}
+
+	if (user->is_server_operator() || channel.is_operator(user) || !channel.has_mode(MODE_TOPIC))
+	{
+		channel.set_topic(join(args.begin() + 2, args.end(), " ").substr(1));
+		broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " TOPIC " + args[1] + " :" + channel.get_topic());
+	}
+	else
+		channel_operator_privileges_needed(fd, channel.get_name());
+}
+
+void Server::MODE(int fd, User *user, std::vector<std::string> &args)
+{
+	CHECK_ARGS(2);
+	CHECK_CHANNEL(args[1]);
+
+	if (!channel.has_user(fd))
+	{
+		not_on_channel(fd, args[1]);
+		return;
+	}
+
+	if (args.size() == 2)
+	{
+		std::string modes = "n";
+		std::string values;
+
+		if (channel.has_mode(MODE_INVITEONLY))
+			modes += "i";
+		if (channel.has_mode(MODE_TOPIC))
+			modes += "t";
+		if (channel.has_mode(MODE_KEY))
+		{
+			modes += "k";
+			values += channel.get_key() + " ";
+		}
+		if (channel.has_mode(MODE_LIMIT))
+		{
+			modes += "l";
+			values += to_string(channel.get_limit());
+		}
+
+		send_message(fd, ":" + conf.name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +" + modes + " " + values);
+		return;
+	}
+
+	char operation = args[2][0];
+
+	if (operation != '+' && operation != '-')
+	{
+		send_message(fd, ":" + conf.name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2] + " :retard");
+		return;
+	}
+
+	int mode = 0;
+	bool err = false;
+	size_t arg_idx = 3;
+	for (size_t i = 1; i < args[2].length(); i++)
+	{
+		switch (args[2][i])
+		{
+			SET_MODE_OR_ERR('i', MODE_INVITEONLY);
+			SET_MODE_OR_ERR('t', MODE_TOPIC);
+
+			SET_MODE_OR_ERR('o', MODE_OPERATOR);
+			SET_MODE_OR_ERR('k', MODE_KEY);
+			SET_MODE_OR_ERR('l', MODE_LIMIT);
+		default:
+			err = true;
+			break;
+		}
+		if (err)
+		{
+			send_message(fd, ":" + conf.name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
+			return;
+		}
+		else
+		{
+			if (mode & MODE_INVITEONLY)
+			{
+				OPER_START();
+				if (operation == '+')
+					channel.set_mode(channel.get_mode() | MODE_INVITEONLY);
+				else
+					channel.set_mode(channel.get_mode() & ~MODE_INVITEONLY);
+				broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
+				OPER_END();
+			}
+			if (mode & MODE_OPERATOR)
+			{
+				OPER_START();
+				CHECK_ARGS(arg_idx + 1);
+				User *target = find_user_by_nickname(args[arg_idx]);
+				if (target)
+				{
+					if (channel.has_user(target->get_fd()))
+					{
+						if (operation == '+')
+							channel.add_operator(target);
+						else if (operation == '-')
+							channel.remove_operator(target);
+						broadcast_message(channel, ":" + conf.name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
+					}
+					else
+						user_not_in_channel(fd, args[arg_idx], channel.get_name());
+				}
+				else
+					no_such_nick(fd, args[arg_idx]);
+				OPER_END();
+				arg_idx++;
+			}
+			if (mode & MODE_TOPIC)
+			{
+				OPER_START();
+				if (operation == '+')
+					channel.set_mode(channel.get_mode() | MODE_TOPIC);
+				else
+					channel.set_mode(channel.get_mode() & ~MODE_TOPIC);
+				broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "t");
+				OPER_END();
+			}
+			if (mode & MODE_LIMIT)
+			{
+				OPER_START();
+				if (operation == '+')
+				{
+					CHECK_ARGS(arg_idx + 1);
+					channel.set_mode(channel.get_mode() | MODE_LIMIT);
+					channel.set_limit(std::atoi(args[arg_idx].c_str()));
+					broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "l " + args[arg_idx]);
+					arg_idx++;
+				}
+				else if (operation == '-' && channel.has_mode(MODE_LIMIT))
+				{
+					channel.set_mode(channel.get_mode() & ~MODE_LIMIT);
+					broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "l");
+				}
+				OPER_END();
+			}
+			if (mode & MODE_KEY)
+			{
+				OPER_START();
+				CHECK_ARGS(arg_idx + 1);
+				if (operation == '+' && !channel.has_mode(MODE_KEY))
+				{
+					channel.set_mode(channel.get_mode() | MODE_KEY);
+					channel.set_key(args[arg_idx]);
+					broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "k " + channel.get_key());
+				}
+				else if (operation == '-' && channel.has_mode(MODE_KEY))
+				{
+					channel.set_mode(channel.get_mode() & ~MODE_KEY);
+					broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "k");
+				}
+				OPER_END();
+				arg_idx++;
+			}
+		}
+		mode = 0;
+	}
 }
 
 void Server::parse_command(int fd, const std::string &cmd)
@@ -250,484 +732,36 @@ void Server::parse_command(int fd, const std::string &cmd)
 			throw std::runtime_error("connection terminated");
 		}
 	}
-	else if (args[0] == "USER")
+	else
 	{
-		CHECK_ARGS(5);
-
-		if (user->get_user() != "") {
-			already_registered(fd);
-			return;
-		}
-
-		std::string username = args[1];
-		std::string realname = join(args.begin() + 4, args.end(), " ").substr(1);
-		bool username_valid = verify_string(username, USER);
-		bool realname_valid = verify_string(realname, LETTER);
-
-		if (!username_valid || !realname_valid)
-			return;
-
-		user->set_user(username);
-		user->set_real(realname);
-		if (user->get_registered())
-			welcome(fd);
-	}
-	else if (args[0] == "NICK")
-	{
-		CHECK_ARGS(2);
-
-		std::string nickname = args[1];
-		std::string nickname_first = nickname.substr(0, 1);
-		std::string nickname_rest = nickname.substr(1);
-		bool length_valid = nickname.length() <= conf.max_nickname_length;
-		bool nickname_first_valid = verify_string(nickname_first, LETTER | SPECIAL);
-		bool nickname_rest_valid = verify_string(nickname_rest, LETTER | DIGIT | SPECIAL | DASH);
-
-		if (user->get_nick() == nickname)
-			return;
-		
-		if (!length_valid || !nickname_first_valid || !nickname_rest_valid)
+		static struct
 		{
-			send_message(fd, ":" + conf.name + " " + c(ERR_ERRONEUSNICKNAME) + " " + nickname + " :Erroneous nickname");
-			return;
-		}
-
-		if (find_user_by_nickname(nickname) != NULL)
+			std::string name;
+			void (Server::*func) (int, User *, std::vector<std::string> &);
+		} commands[] = {
+			{"USER", &Server::USER},
+			{"NICK", &Server::NICK},
+			{"LIST", &Server::LIST},
+			{"QUIT", &Server::QUIT},
+			{"JOIN", &Server::JOIN},
+			{"WHO", &Server::WHO},
+			{"PRIVMSG", &Server::PRIVMSG},
+			{"ISON", &Server::ISON},
+			{"PART", &Server::PART},
+			{"PING", &Server::PING},
+			{"OPER", &Server::OPER},
+			{"KICK", &Server::KICK},
+			{"INVITE", &Server::INVITE},
+			{"TOPIC", &Server::TOPIC},
+			{"MODE", &Server::MODE},
+		};
+		for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++)
 		{
-			send_message(fd, ":" + conf.name + " " + c(ERR_NICKNAMEINUSE) + " " + nickname + " :" + nickname);
-			return;
-		}
-
-		user->set_nick(nickname);
-		if (user->get_registered())
-			send_message(fd, ":" + conf.name + " NICK " + nickname);
-		user->set_registered(true);
-		if (user->get_user() != "")
-			welcome(fd);
-	}
-	else if (args[0] == "LIST")
-	{
-		send_message(fd, ":" + conf.name + " " + c(RPL_LISTSTART) + " " + user->get_nick() + " Channel :Users Name");
-		for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); it++)
-			send_message(fd, ":" + conf.name + " " + c(RPL_LIST) + " " + user->get_nick() + " " + it->second.get_name() + " " + it->second.get_users_count() + " :" + it->second.get_topic());
-		send_message(fd, ":" + conf.name + " " + c(RPL_LISTEND) + " " + user->get_nick() + " :End of /LIST");
-	}
-	else if (args[0] == "QUIT")
-	{
-		terminate_connection(fd);
-		throw std::runtime_error("connection terminated");
-	}
-	else if (args[0] == "JOIN")
-	{
-		CHECK_ARGS(2);
-
-		std::vector<std::string> params = split(args[1], ',');
-
-		if (params.size() < 1)
-		{
-			need_more_params(fd, args[0]);
-			return;
-		}
-
-		std::vector<std::string> keys;
-
-		if (args.size() > 2)
-			keys = split(args[2], ',');
-
-		for (size_t i = 0; i < params.size(); i++)
-		{
-			std::string channel_key = keys.size() > i ? keys[i] : "";
-			if (channels.find(params[i]) != channels.end())
+			if (args[0] == commands[i].name)
 			{
-				Channel &channel = channels[params[i]];
-				if (channel.is_invited(user))
-				{
-					if (!channel.has_mode(MODE_LIMIT) || channel.get_users().size() < channel.get_limit())
-					{
-						int ret = channel.add_user(fd, user, channel_key);
-						if (ret == ERR_BADCHANNELKEY)
-							send_message(fd, ":" + conf.name + " " + c(ERR_BADCHANNELKEY) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+k)");
-						else
-						{
-							channel.remove_invite(user);
-							broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " JOIN :" + params[i]);
-							send_message(fd, ":" + conf.name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());
-							send_message(fd, ":" + conf.name + " " + c(RPL_NAMREPLY) + " " + user->get_nick() + " = " + params[i] + " :" + channel.get_users_list());
-							send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFNAMES) + " " + user->get_nick() + " " + params[i] + " :End of /NAMES list");
-						}
-					}
-					else
-						send_message(fd, ":" + conf.name + " " + c(ERR_CHANNELISFULL) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+l)");
-				}
-				else
-					send_message(fd, ":" + conf.name + " " + c(ERR_INVITEONLYCHAN) + " " + user->get_nick() + " " + params[i] + " :Cannot join channel (+i)");
-			}
-			else
-				no_such_channel(fd, params[i]);
-		}
-	}
-	else if (args[0] == "WHO")
-	{
-		CHECK_ARGS(2);
-
-		if (channels.find(args[1]) == channels.end())
-		{
-			no_such_channel(fd, args[1]);
-			return;
-		}
-
-		std::vector<std::string> who_list = channels[args[1]].get_who_list();
-
-		for (size_t i = 0; i < who_list.size(); i++)
-			send_message(fd, ":" + conf.name + " " + c(RPL_WHOREPLY) + " " + user->get_nick() + " " + args[1] + " " + who_list[i]);
-		send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFWHO) + " " + user->get_nick() + " " + args[1] + " :End of /WHO list");
-	}
-	else if (args[0] == "PRIVMSG")
-	{
-		if (args.size() < 3)
-		{
-			need_more_params(fd, args[0]);
-			return;
-		}
-
-		std::string message = join(args.begin() + 2, args.end(), " ");
-
-		if (args[1][0] == '#')
-		{
-			if (channels.find(args[1]) == channels.end())
-			{
-				no_such_channel(fd, args[1]);
+				(this->*commands[i].func)(fd, user, args);
 				return;
 			}
-
-			Channel &channel = channels[args[1]];
-			if (!channel.has_user(fd))
-			{
-				not_on_channel(fd, args[1]);
-				return;
-			}
-
-			broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " PRIVMSG " + args[1] + " " + message, users[fd]);
-		}
-		else
-		{
-			User *target = find_user_by_nickname(args[1]);
-			if (target == NULL)
-			{
-				no_such_nick(fd, args[1]);
-				return;
-			}
-
-			send_message(target->get_fd(), ":" + user->get_hostmask(user->get_nick()) + " PRIVMSG " + target->get_nick() + " " + message);
-		}
-	}
-	else if (args[0] == "ISON")
-	{
-		if (args.size() < 2)
-		{
-			need_more_params(fd, args[0]);
-			return;
-		}
-
-		if (args[1][0] == '#')
-		{
-			if (channels.find(args[1]) == channels.end())
-			{
-				send_message(fd, ":" + conf.name + " " + c(RPL_NOWOFF) + " " + user->get_nick() + " " + args[1] + " :" + args[1] + " * * 0 is offline");
-				return;
-			}
-		}
-		else
-		{
-			User *user = find_user_by_nickname(args[1]);
-			if (user == NULL)
-			{
-				send_message(fd, ":" + conf.name + " " + c(RPL_ISON) + " " + user->get_nick() + " :" + args[1]);
-				return;
-			}
-		}
-		send_message(fd, ":" + conf.name + " " + c(RPL_ISON) + " " + user->get_nick() + " :");
-	}
-	else if (args[0] == "PART")
-	{
-		CHECK_ARGS(3);
-
-		CHECK_CHANNEL(args[1]);
-
-		if (!channel.has_user(fd))
-		{
-			not_on_channel(fd, args[1]);
-			return;
-		}
-
-		broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " PART " + args[1] + " " + join(args.begin() + 2, args.end(), " "));
-
-		channel.remove_user(fd);
-	}
-	else if (args[0] == "PING")
-	{
-		std::string message = join(args.begin() + 1, args.end(), " ");
-
-		send_message(fd, ":" + conf.name + " PONG " + conf.name + " :" + message);
-	}
-	else if (args[0] == "OPER")
-	{
-		CHECK_ARGS(3);
-
-		bool authenticated = args[1] == conf.operator_username && args[2] == conf.operator_password;
-		if (authenticated)
-		{
-			operators[fd] = user;
-			user->set_server_operator(true);
-			send_message(fd, ":" + conf.name + " " + c(RPL_YOUREOPER) + " " + user->get_nick() + " :You are now an IRC operator");
-			server_broadcast_message(":" + conf.name + " MODE " + user->get_nick() + " :+o");
-		}
-		else
-		{
-			send_message(fd, ":" + conf.name + " " + c(ERR_PASSWDMISMATCH) + " " + user->get_nick() + " :Password incorrect");
-		}
-	}
-	else if (args[0] == "KICK")
-	{
-		CHECK_ARGS(3);
-
-		CHECK_CHANNEL(args[1]);
-
-		if (!channel.has_user(fd))
-		{
-			not_on_channel(fd, args[1]);
-			return;
-		}
-
-		OPER_START();
-		User *target = find_user_by_nickname(args[2]);
-
-		if (target == NULL)
-		{
-			no_such_nick(fd, args[2]);
-			return;
-		}
-
-		if (channel.has_user(target->get_fd()))
-		{
-			broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " KICK " + args[1] + " " + args[2] + " :");
-			channel.remove_user(target->get_fd());
-		}
-		else
-			user_not_in_channel(fd, args[2], channel.get_name());
-		OPER_END();
-	}
-	else if (args[0] == "INVITE")
-	{
-		CHECK_ARGS(3);
-
-		CHECK_CHANNEL(args[2]);
-
-		if (!channel.has_user(fd))
-		{
-			not_on_channel(fd, args[2]);
-			return;
-		}
-
-		User *target = find_user_by_nickname(args[1]);
-
-		if (target == NULL)
-		{
-			no_such_nick(fd, args[1]);
-			return;
-		}
-
-		std::cout << "target: " << target->get_nick() << std::endl;
-
-		if (user->is_server_operator() || channel.is_operator(user))
-		{
-			if (channel.has_user(target->get_fd()))
-			{
-				send_message(fd, ":" + conf.name + " " + c(ERR_USERONCHANNEL) + " " + user->get_nick() + " " + args[1] + " " + args[2] + " :is already on channel");
-				return;
-			}
-			send_message(target->get_fd(), ":" + user->get_hostmask(user->get_nick()) + " INVITE " + target->get_nick() + " " + args[2]);
-			send_message(fd, ":" + conf.name + " " + c(RPL_INVITING) + " " + user->get_nick() + " " + args[1] + " " + args[2]);
-			channel.invite(target);
-		}
-		else
-			channel_operator_privileges_needed(fd, channel.get_name());
-	}
-	else if (args[0] == "TOPIC")
-	{
-		CHECK_ARGS(2);
-
-		CHECK_CHANNEL(args[1]);
-
-		if (!channel.has_user(fd))
-		{
-			not_on_channel(fd, args[1]);
-			return;
-		}
-
-		if (args.size() == 2)
-		{
-			send_message(fd, ":" + conf.name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + args[1] + " :" + channel.get_topic());
-			return;
-		}
-
-		if (user->is_server_operator() || channel.is_operator(user) || !channel.has_mode(MODE_TOPIC))
-		{
-			channel.set_topic(join(args.begin() + 2, args.end(), " ").substr(1));
-			broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " TOPIC " + args[1] + " :" + channel.get_topic());
-		}
-		else
-			channel_operator_privileges_needed(fd, channel.get_name());
-	}
-	else if (args[0] == "MODE")
-	{
-		CHECK_ARGS(2);
-
-		CHECK_CHANNEL(args[1]);
-
-		if (!channel.has_user(fd))
-		{
-			not_on_channel(fd, args[1]);
-			return;
-		}
-
-		if (args.size() == 2)
-		{
-			std::string modes = "n";
-			std::string values;
-
-			if (channel.has_mode(MODE_INVITEONLY))
-				modes += "i";
-			if (channel.has_mode(MODE_TOPIC))
-				modes += "t";
-			if (channel.has_mode(MODE_KEY))
-			{
-				modes += "k";
-				values += channel.get_key() + " ";
-			}
-			if (channel.has_mode(MODE_LIMIT))
-			{
-				modes += "l";
-				values += to_string(channel.get_limit());
-			}
-
-			send_message(fd, ":" + conf.name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " +" + modes + " " + values);
-			return;
-		}
-
-		char operation = args[2][0];
-
-		if (operation != '+' && operation != '-')
-		{
-			send_message(fd, ":" + conf.name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2] + " :retard");
-			return;
-		}
-
-		int mode = 0;
-		bool err = false;
-		size_t arg_idx = 3;
-		for (size_t i = 1; i < args[2].length(); i++)
-		{
-			switch (args[2][i])
-			{
-				SET_MODE_OR_ERR('i', MODE_INVITEONLY);
-				SET_MODE_OR_ERR('t', MODE_TOPIC);
-
-				SET_MODE_OR_ERR('o', MODE_OPERATOR);
-				SET_MODE_OR_ERR('k', MODE_KEY);
-				SET_MODE_OR_ERR('l', MODE_LIMIT);
-			default:
-				err = true;
-				break;
-			}
-			if (err)
-			{
-				send_message(fd, ":" + conf.name + " " + c(ERR_UNKNOWNMODE) + " " + user->get_nick() + " " + args[2][i] + " :retard");
-				return;
-			}
-			else
-			{
-				if (mode & MODE_INVITEONLY)
-				{
-					OPER_START();
-					if (operation == '+')
-						channel.set_mode(channel.get_mode() | MODE_INVITEONLY);
-					else
-						channel.set_mode(channel.get_mode() & ~MODE_INVITEONLY);
-					broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "i");
-					OPER_END();
-				}
-				if (mode & MODE_OPERATOR)
-				{
-					OPER_START();
-					CHECK_ARGS(arg_idx + 1);
-					User *target = find_user_by_nickname(args[arg_idx]);
-					if (target)
-					{
-						if (channel.has_user(target->get_fd()))
-						{
-							if (operation == '+')
-								channel.add_operator(target);
-							else if (operation == '-')
-								channel.remove_operator(target);
-							broadcast_message(channel, ":" + conf.name + " " + c(RPL_CHANNELMODEIS) + " " + user->get_nick() + " " + args[1] + " " + operation + "o " + target->get_nick());
-						}
-						else
-							user_not_in_channel(fd, args[arg_idx], channel.get_name());
-					}
-					else
-						no_such_nick(fd, args[arg_idx]);
-					OPER_END();
-					arg_idx++;
-				}
-				if (mode & MODE_TOPIC)
-				{
-					OPER_START();
-					if (operation == '+')
-						channel.set_mode(channel.get_mode() | MODE_TOPIC);
-					else
-						channel.set_mode(channel.get_mode() & ~MODE_TOPIC);
-					broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "t");
-					OPER_END();
-				}
-				if (mode & MODE_LIMIT)
-				{
-					OPER_START();
-					if (operation == '+')
-					{
-						CHECK_ARGS(arg_idx + 1);
-						channel.set_mode(channel.get_mode() | MODE_LIMIT);
-						channel.set_limit(std::atoi(args[arg_idx].c_str()));
-						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "l " + args[arg_idx]);
-						arg_idx++;
-					}
-					else if (operation == '-' && channel.has_mode(MODE_LIMIT))
-					{
-						channel.set_mode(channel.get_mode() & ~MODE_LIMIT);
-						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "l");
-					}
-					OPER_END();
-				}
-				if (mode & MODE_KEY)
-				{
-					OPER_START();
-					CHECK_ARGS(arg_idx + 1);
-					if (operation == '+' && !channel.has_mode(MODE_KEY))
-					{
-						channel.set_mode(channel.get_mode() | MODE_KEY);
-						channel.set_key(args[arg_idx]);
-						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "k " + channel.get_key());
-					}
-					else if (operation == '-' && channel.has_mode(MODE_KEY))
-					{
-						channel.set_mode(channel.get_mode() & ~MODE_KEY);
-						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " MODE " + args[1] + " :" + operation + "k");
-					}
-					OPER_END();
-					arg_idx++;
-				}
-			}
-			mode = 0;
 		}
 	}
 }
@@ -774,7 +808,8 @@ void Server::process_events(int fd, int revents)
 		{
 			accept_connections();
 		}
-		else {
+		else
+		{
 			receive_data(fd);
 			parse_data(fd);
 		}
@@ -994,13 +1029,13 @@ void Server::bot_response(std::string message)
 		"Reply hazy try again", "Ask again later", "Better not tell you now",
 		"Cannot predict now", "Concentrate and ask again",
 		"Don't count on it", "My reply is no", "My sources say no",
-		"Outlook not so good", "Very doubtful"
-	};
+		"Outlook not so good", "Very doubtful"};
 
 	for (size_t i = 0; i < args.size(); i++)
 		std::cout << "args[" << i << "] = " << args[i] << std::endl;
 
-	if (args[1] == "PRIVMSG") {
+	if (args[1] == "PRIVMSG")
+	{
 		std::srand(time(NULL));
 
 		std::string received_message = join(args.begin() + 3, args.end(), " ");
@@ -1008,7 +1043,6 @@ void Server::bot_response(std::string message)
 		bool forced_response = received_message.find("fuck") != std::string::npos;
 		std::string direction = get_nickname_from_hostmask(args[0]);
 		std::string response = forced_response ? "you" : all_responses[random_idx];
-
 
 		if (args[2] != conf.bot.nickname)
 			direction = args[2];

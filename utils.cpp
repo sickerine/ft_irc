@@ -96,7 +96,7 @@ bool verify_string(const std::string &str, int modes)
 		allowedset += "[]\\`_^{|}";
 	if (modes & DASH)
 		allowedset += "-";
-	if (modes & USER)
+	if (modes & USERNAME)
 		return str.find_first_of("\r\n @") == std::string::npos;
 	if (modes & CHANNEL)
 		return str.find_first_of("\a\r\n ,:") == std::string::npos;

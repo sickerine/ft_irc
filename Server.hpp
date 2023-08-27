@@ -85,4 +85,20 @@ public:
 	void initialize_bot();
 	bool bot_parse();
 	void bot_response(std::string message);
+
+	void USER(int fd, User *user, std::vector<std::string> &args);
+	void NICK(int fd, User *user, std::vector<std::string> &args);
+	void LIST(int fd, User *user, std::vector<std::string> &args);
+	void QUIT(int fd, User *user, std::vector<std::string> &args);
+	void JOIN(int fd, User *user, std::vector<std::string> &args);
+	void WHO(int fd, User *user, std::vector<std::string> &args);
+	void PRIVMSG(int fd, User *user, std::vector<std::string> &args);
+	void ISON(int fd, User *user, std::vector<std::string> &args);
+	void PART(int fd, User *user, std::vector<std::string> &args);
+	void PING(int fd, User *user, std::vector<std::string> &args);
+	void OPER(int fd, User *user, std::vector<std::string> &args);
+	void KICK(int fd, User *user, std::vector<std::string> &args);
+	void INVITE(int fd, User *user, std::vector<std::string> &args);
+	void TOPIC(int fd, User *user, std::vector<std::string> &args);
+	void MODE(int fd, User *user, std::vector<std::string> &args);
 };
