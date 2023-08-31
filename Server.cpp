@@ -941,10 +941,10 @@ void Server::broadcast_user_channels(int fd, const std::string &message, User *e
 	std::cout << MUSTARD << "Broadcasting to " << RESET << users[fd]->get_nick() << "'s channels" << MUSTARD ": `" RESET << escape(message) << MUSTARD "`" RESET << std::endl;
 	std::string ircmsg(message + "\r\n");
 	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); ++it)
-	{
 		if (it->second.has_user(fd))
-			broadcast_message(it->second, ircmsg, except);
-	}
+			for (UserList::iterator cit = it->second.get_users().begin(); cit != it->second.get_users().end(); ++cit)
+				if (cit->second != except)
+					users[cit->first]->append_sendbuffer(ircmsg);
 }
 
 pollfd Server::make_pfd(int fd, int events, int revents)
@@ -1073,11 +1073,11 @@ bool Server::bot_parse()
 	std::istringstream iss(users[fd]->get_sendbuffer());
 	std::string line;
 
-	// std::cout << ORANGE "BOT PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
+	std::cout << ORANGE "BOT PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
 
 	while (std::getline(iss, line))
 	{
-		// std::cout << MUSTARD << "BOT RECEIVED : `" << RESET << escape(line) << MUSTARD "`" RESET << std::endl;
+		std::cout << MUSTARD << "BOT RECEIVED : `" << RESET << escape(line) << MUSTARD "`" RESET << std::endl;
 		if (line.substr(line.length() - 1) == "\r")
 		{
 			bot_response(line);
@@ -1087,7 +1087,7 @@ bool Server::bot_parse()
 			return false;
 	}
 
-	// std::cout << ORANGE "AFTER PARSING BOT DATA: " << escape(users[fd]->get_sendbuffer()) << RESET << std::endl;
+	std::cout << ORANGE "AFTER PARSING BOT DATA: " << escape(users[fd]->get_sendbuffer()) << RESET << std::endl;
 
 	return true;
 }
@@ -1109,6 +1109,9 @@ void Server::bot_response(std::string message)
 		"Cannot predict now", "Concentrate and ask again",
 		"Don't count on it", "My reply is no", "My sources say no",
 		"Outlook not so good", "Very doubtful"};
+	
+	if (args.size() < 3)
+		return;
 
 	if (args[1] == "PRIVMSG")
 	{
