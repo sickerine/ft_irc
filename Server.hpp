@@ -2,9 +2,18 @@
 
 #include "IRCserver.hpp"
 
+#define INVALID_COMMAND -1
+
 class Channel;
 class User;
 class Server;
+
+typedef struct CommandInfo
+{
+	std::string name;
+	void (Server::*func)(int, User *, std::vector<std::string> &);
+	bool need_registered;
+} CommandInfo;
 
 class Server
 {
@@ -46,6 +55,7 @@ private:
 	std::vector<pollfd> pfds;
 
 	// IRC stuff
+	static CommandInfo commands[];
 	UserList users;
 	UserList operators;
 	std::map<std::string, Channel, map_string_comparator> channels;
@@ -66,6 +76,7 @@ public:
 	void send_message(int fd, const std::string &message);
 	void broadcast_message(Channel &channel, const std::string &message, User *except = NULL);
 	void server_broadcast_message(const std::string &message, User *except = NULL);
+	void broadcast_user_channels(int fd, const std::string &message);
 	static pollfd make_pfd(int fd, int events, int revents);
 	void terminate_connection(int fd);
 	User *find_user_by_nickname(const std::string &nickname);
@@ -79,13 +90,18 @@ public:
 	void remove_operator(User *user);
 	void channel_operator_privileges_needed(int fd, const std::string &channel);
 	void already_registered(int fd);
+	void unknown_command(int fd, const std::string &command);
+	void not_registered(int fd);
+
 	bool load_config(const std::string &filename);
 	bool load_config_channel(std::ifstream &file);
+	int is_valid_command(const std::string &line);
 
 	void initialize_bot();
 	bool bot_parse();
 	void bot_response(std::string message);
 
+	void PASS(int fd, User *user, std::vector<std::string> &args);
 	void USER(int fd, User *user, std::vector<std::string> &args);
 	void NICK(int fd, User *user, std::vector<std::string> &args);
 	void LIST(int fd, User *user, std::vector<std::string> &args);
@@ -101,4 +117,5 @@ public:
 	void INVITE(int fd, User *user, std::vector<std::string> &args);
 	void TOPIC(int fd, User *user, std::vector<std::string> &args);
 	void MODE(int fd, User *user, std::vector<std::string> &args);
+	void IGNORED(int fd, User *user, std::vector<std::string> &args);
 };

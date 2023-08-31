@@ -44,7 +44,7 @@ std::vector<std::string> split(const std::string &str, char delim, bool trim)
 
 	while (std::getline(iss, line, delim))
 	{
-		if (line.empty())
+		if (line.empty() && splits.size() > 0)
 			splits.back() += delim;
 		else
 			splits.push_back(line);
@@ -53,7 +53,7 @@ std::vector<std::string> split(const std::string &str, char delim, bool trim)
 		splits.back().erase(splits.back().length() - 1);
 
 	// Removing empty string at the end of the vector
-	while (splits.back().empty())
+	while (trim && splits.back().empty())
 		splits.pop_back();
 
 	//for (size_t i = 0; i < splits.size(); i++)
@@ -90,6 +90,8 @@ bool verify_string(const std::string &str, int modes)
 	std::string allowedset;
 	if (modes & LETTER)
 		allowedset += "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	if (modes & SPACE)
+		allowedset += " ";
 	if (modes & DIGIT)
 		allowedset += "0123456789";
 	if (modes & SPECIAL)

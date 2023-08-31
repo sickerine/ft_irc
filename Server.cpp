@@ -2,6 +2,29 @@
 #include "Channel.hpp"
 #include "User.hpp"
 
+
+CommandInfo Server::commands[] = {
+	{"PASS", &Server::PASS, false},
+	{"USER", &Server::USER, false},
+	{"NICK", &Server::NICK, false},
+	{"LIST", &Server::LIST, true},
+	{"QUIT", &Server::QUIT, false},
+	{"JOIN", &Server::JOIN, true},
+	{"WHO", &Server::WHO, true},
+	{"PRIVMSG", &Server::PRIVMSG, true},
+	{"ISON", &Server::ISON, true},
+	{"PART", &Server::PART, true},
+	{"PING", &Server::PING, true},
+	{"OPER", &Server::OPER, true},
+	{"KICK", &Server::KICK, true},
+	{"INVITE", &Server::INVITE, true},
+	{"TOPIC", &Server::TOPIC, true},
+	{"MODE", &Server::MODE, true},
+	{"CAP", &Server::IGNORED, false},
+	{"PROCTL", &Server::IGNORED, false},
+	{"PONG", &Server::IGNORED, false},
+};
+
 bool Server::load_config_channel(std::ifstream &file)
 {
 	std::string ele[3];
@@ -224,6 +247,13 @@ void Server::welcome(int fd)
 	send_message(fd, ":" + conf.name + " " + c(RPL_ENDOFMOTD) + " " + users[fd]->get_user() + " :End of /MOTD command.");
 }
 
+void Server::PASS(int fd, User *user, std::vector<std::string> &args)
+{
+	(void)args;
+	(void)user;
+	already_registered(fd);
+}
+
 void Server::USER(int fd, User *user, std::vector<std::string> &args)
 {
 	CHECK_ARGS(5);
@@ -237,8 +267,8 @@ void Server::USER(int fd, User *user, std::vector<std::string> &args)
 	std::string username = args[1];
 	std::string realname = join(args.begin() + 4, args.end(), " ").substr(1);
 	bool username_valid = verify_string(username, USERNAME);
-	bool realname_valid = verify_string(realname, LETTER);
-
+	bool realname_valid = verify_string(realname, LETTER | SPACE);
+	
 	if (!username_valid || !realname_valid)
 		return;
 
@@ -322,6 +352,8 @@ void Server::JOIN(int fd, User *user, std::vector<std::string> &args)
 	for (size_t i = 0; i < params.size(); i++)
 	{
 		std::string channel_key = keys.size() > i ? keys[i] : "";
+		std::cout << "channel: " << params[i] << std::endl;
+		std::cout << "channel_key: " << channel_key << std::endl;
 		if (channels.find(params[i]) != channels.end())
 		{
 			Channel &channel = channels[params[i]];
@@ -703,9 +735,24 @@ void Server::MODE(int fd, User *user, std::vector<std::string> &args)
 	}
 }
 
+void Server::IGNORED(int fd, User *user, std::vector<std::string> &args)
+{
+	(void)fd;
+	(void)user;
+	(void)args;
+}
+
 void Server::parse_command(int fd, const std::string &cmd)
 {
 	User *user = users[fd];
+	int command_idx = is_valid_command(cmd);
+
+	if (command_idx == INVALID_COMMAND)
+	{
+		user->get_registered() ? unknown_command(fd, cmd) : not_registered(fd);
+		return ;
+	}
+		
 	std::vector<std::string> args = split(cmd, ' ', true);
 
 	if (args.size() < 1)
@@ -726,43 +773,17 @@ void Server::parse_command(int fd, const std::string &cmd)
 			if (args[1] == conf.password)
 				user->set_auth(true);
 		}
-		else if (args[0] != "CAP" && args[0] != "PROTOCTL" && args[0] != "PONG")
+		else
 		{
-			terminate_connection(fd);
-			throw std::runtime_error("connection terminated");
+			not_registered(fd);
 		}
 	}
 	else
 	{
-		static struct
-		{
-			std::string name;
-			void (Server::*func) (int, User *, std::vector<std::string> &);
-		} commands[] = {
-			{"USER", &Server::USER},
-			{"NICK", &Server::NICK},
-			{"LIST", &Server::LIST},
-			{"QUIT", &Server::QUIT},
-			{"JOIN", &Server::JOIN},
-			{"WHO", &Server::WHO},
-			{"PRIVMSG", &Server::PRIVMSG},
-			{"ISON", &Server::ISON},
-			{"PART", &Server::PART},
-			{"PING", &Server::PING},
-			{"OPER", &Server::OPER},
-			{"KICK", &Server::KICK},
-			{"INVITE", &Server::INVITE},
-			{"TOPIC", &Server::TOPIC},
-			{"MODE", &Server::MODE},
-		};
-		for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++)
-		{
-			if (args[0] == commands[i].name)
-			{
-				(this->*commands[i].func)(fd, user, args);
-				return;
-			}
-		}
+		if (commands[command_idx].need_registered && !user->get_registered())
+			not_registered(fd);
+		else
+			(this->*commands[command_idx].func)(fd, user, args);
 	}
 }
 
@@ -771,19 +792,19 @@ void Server::parse_data(int fd)
 	std::istringstream iss(users[fd]->get_data());
 	std::string line;
 
-	std::cout << RED "PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
+	if (users[fd]->get_data().length() > conf.max_message_length)
+	{
+		terminate_connection(fd);
+		return;
+	}
 
+	std::cout << RED "PARSING DATA: " << escape(iss.str()) << RESET << std::endl;
 	while (std::getline(iss, line))
 	{
 		std::cout << YELLOW << "Received from " << RESET << fd << YELLOW ": `" RESET << escape(line) << YELLOW "`" RESET << std::endl;
 		try
 		{
-			if (line.length() > conf.max_message_length)
-			{
-				terminate_connection(fd);
-				throw std::runtime_error("connection terminated");
-			}
-			else if (line.substr(line.length() - 1) == "\r")
+			if (line.substr(line.length() - 1) == "\r")
 			{
 				parse_command(fd, line);
 				users[fd]->get_data().erase(0, line.length() + 1);
@@ -797,6 +818,16 @@ void Server::parse_data(int fd)
 		}
 	}
 	std::cout << RED "AFTER PARSING DATA: " << escape(users[fd]->get_data()) << RESET << std::endl;
+}
+
+int Server::is_valid_command(const std::string &line)
+{
+	for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++)
+	{
+		if (line.substr(0, commands[i].name.length() + 1) == commands[i].name + " ")
+			return i;
+	}
+	return INVALID_COMMAND;
 }
 
 void Server::process_events(int fd, int revents)
@@ -879,6 +910,15 @@ void Server::server_broadcast_message(const std::string &message, User *except)
 	}
 }
 
+void Server::broadcast_user_channels(int fd, const std::string &message)
+{
+	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); ++it)
+	{
+		if (it->second.has_user(fd))
+			broadcast_message(it->second, message, users[fd]);
+	}
+}
+
 pollfd Server::make_pfd(int fd, int events, int revents)
 {
 	pollfd pfd = initialized<pollfd>();
@@ -891,7 +931,7 @@ pollfd Server::make_pfd(int fd, int events, int revents)
 
 void Server::terminate_connection(int fd)
 {
-	close(fd);
+	broadcast_user_channels(fd, ":" + users[fd]->get_hostmask(users[fd]->get_nick()) + " QUIT :Client closed connection");
 	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); ++it)
 		it->second.remove_user(fd);
 	users.erase(fd);
@@ -903,6 +943,7 @@ void Server::terminate_connection(int fd)
 			break;
 		}
 	}
+	close(fd);
 }
 
 User *Server::find_user_by_nickname(const std::string &nickname)
@@ -948,6 +989,16 @@ void Server::channel_operator_privileges_needed(int fd, const std::string &chann
 void Server::already_registered(int fd)
 {
 	send_message(fd, ":" + conf.name + " " + c(ERR_ALREADYREGISTRED) + " " + users[fd]->get_nick() + " :You may not reregister");
+}
+
+void Server::unknown_command(int fd, const std::string &command)
+{
+	send_message(fd, ":" + conf.name + " " + c(ERR_UNKNOWNCOMMAND) + " " + users[fd]->get_nick() + " " + command + " :Unknown command");
+}
+
+void Server::not_registered(int fd)
+{
+	send_message(fd, ":" + conf.name + " " + c(ERR_NOTREGISTERED) + " " + users[fd]->get_nick() + " :You have not registered");
 }
 
 bool Server::is_operator(int fd)
