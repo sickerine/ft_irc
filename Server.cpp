@@ -139,7 +139,7 @@ bool Server::verify_server_name()
 	return true;
 }
 
-Server::Server(const std::string &port, const std::string &pass) : running(true), info(NULL)
+Server::Server(const std::string &port, const std::string &pass) : running(true), repoll(false), info(NULL)
 {
 	insist(load_config("irc.yaml"), false, "failed to load config");
 
@@ -206,8 +206,12 @@ void Server::run()
 	while (running)
 	{
 		insist(poll(&pfds[0], pfds.size(), -1), -1, "poll failed");
-		for (size_t i = 0; i < pfds.size(); i++)
+		for (size_t i = 0; i < pfds.size(); i++) {
+			repoll = false;
 			process_events(pfds[i].fd, pfds[i].revents);
+			if (repoll)
+				i--;
+		}
 		if (conf.bot.fd < 0)
 		{
 			if (bot_parse())
@@ -959,6 +963,8 @@ pollfd Server::make_pfd(int fd, int events, int revents)
 
 void Server::terminate_connection(int fd)
 {
+	if (users.find(fd) == users.end())
+		return;
 	broadcast_user_channels(fd, ":" + users[fd]->get_hostmask(users[fd]->get_nick()) + " QUIT :Client closed connection", users[fd]);
 	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); ++it)
 		it->second.remove_user(fd);
@@ -972,6 +978,7 @@ void Server::terminate_connection(int fd)
 		}
 	}
 	close(fd);
+	repoll = true;
 }
 
 User *Server::find_user_by_nickname(const std::string &nickname)

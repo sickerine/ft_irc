@@ -48,6 +48,7 @@ private:
 		} bot;
 	} conf;
 	bool running;
+	bool repoll;
 
 	// TCP stuff
 	addrinfo *info;
