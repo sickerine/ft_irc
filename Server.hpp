@@ -31,7 +31,7 @@ private:
 		std::string password;
 		std::string operator_username;
 		std::string operator_password;
-		std::string motd;
+		std::vector<std::string> motd;
 		time_t activity_timeout;
 		time_t ping_timeout;
 		size_t max_message_length;
@@ -64,6 +64,7 @@ private:
 public:
 	Server(const std::string &port, const std::string &pass);
 	~Server();
+	bool verify_nickname(const std::string &nickname);
 	bool verify_server_name();
 	void create_channel(const std::string &name, const std::string &key, const std::string &topic);
 	void run();
@@ -76,7 +77,7 @@ public:
 	void send_message(int fd, const std::string &message);
 	void broadcast_message(Channel &channel, const std::string &message, User *except = NULL);
 	void server_broadcast_message(const std::string &message, User *except = NULL);
-	void broadcast_user_channels(int fd, const std::string &message);
+	void broadcast_user_channels(int fd, const std::string &message, User *except = NULL);
 	static pollfd make_pfd(int fd, int events, int revents);
 	void terminate_connection(int fd);
 	User *find_user_by_nickname(const std::string &nickname);

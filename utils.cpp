@@ -53,7 +53,7 @@ std::vector<std::string> split(const std::string &str, char delim, bool trim)
 		splits.back().erase(splits.back().length() - 1);
 
 	// Removing empty string at the end of the vector
-	while (trim && splits.back().empty())
+	while (splits.size() > 0 && splits.back().empty())
 		splits.pop_back();
 
 	//for (size_t i = 0; i < splits.size(); i++)
