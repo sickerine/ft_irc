@@ -938,10 +938,12 @@ void Server::server_broadcast_message(const std::string &message, User *except)
 
 void Server::broadcast_user_channels(int fd, const std::string &message, User *except)
 {
+	std::cout << MUSTARD << "Broadcasting to " << RESET << users[fd]->get_nick() << "'s channels" << MUSTARD ": `" RESET << escape(message) << MUSTARD "`" RESET << std::endl;
+	std::string ircmsg(message + "\r\n");
 	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); ++it)
 	{
 		if (it->second.has_user(fd))
-			broadcast_message(it->second, message, except);
+			broadcast_message(it->second, ircmsg, except);
 	}
 }
 
