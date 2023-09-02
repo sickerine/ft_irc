@@ -17,7 +17,7 @@ bot.nickname: eightball
 bot.username: 8ball
 bot.realname: Magic Eight Ball
 
-channel_creation: 1
+channel_creation: 0
 
 channel:
   - name: global
@@ -25,10 +25,9 @@ channel:
   - topic: L
 
 channel:
-  - name: hentai
+  - name: treyze_tront_sat
   - key: abcdef
-  - topic: NSFW
-
+  - topic: SFW
 
 motd: kys
 motd: kys2

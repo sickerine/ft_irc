@@ -883,7 +883,8 @@ int Server::is_valid_command(const std::string &line)
 {
 	for (size_t i = 0; i < sizeof(commands) / sizeof(commands[0]); i++)
 	{
-		if (line.substr(0, commands[i].name.length() + 1) == commands[i].name + " ")
+		if (line.substr(0, commands[i].name.length() + 1) == commands[i].name + " "
+			|| line.substr(0, commands[i].name.length() + 1) == commands[i].name + "\r")
 			return i;
 	}
 	return INVALID_COMMAND;
