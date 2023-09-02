@@ -161,12 +161,13 @@ bool Server::verify_server_name()
 	return true;
 }
 
+
 Server::Server(const std::string &port, const std::string &pass) : running(true), repoll(false), info(NULL)
 {
 	insist(load_config("irc.yaml"), false, "failed to load config");
 
-	conf.password = pass.empty() ? OPTIONAL_PCONF(server, password) : pass;
-	conf.port = port.empty() ? OPTIONAL_PCONF(server, port) : port;
+	conf.password = pass;
+	conf.port = to_number_safe<int>(port);
 	REQUIRE_PCONF(server, name);
 	REQUIRE_CONF(operator_username);
 	REQUIRE_CONF(operator_password);
@@ -176,6 +177,7 @@ Server::Server(const std::string &port, const std::string &pass) : running(true)
 	REQUIRE_CONF_NUMBER(max_nickname_length, int);
 	REQUIRE_CONF_NUMBER(max_server_name_length, int);
 	REQUIRE_CONF_NUMBER(max_channel_name_length, int);
+	REQUIRE_CONF_NUMBER(channel_creation, int);
 
 	REQUIRE_CONF(bot.nickname);
 	REQUIRE_CONF(bot.username);
@@ -190,6 +192,8 @@ Server::Server(const std::string &port, const std::string &pass) : running(true)
 	insist(verify_string(conf.bot.username, USERNAME), false, "invalid bot username");
 	insist(verify_string(conf.bot.realname, LETTER | SPACE), false, "invalid bot realname");
 	insist(conf.bot.fd < 0, false, "invalid bot fd");
+	insist(conf.channel_creation == 0 || conf.channel_creation == 1, false, "invalid channel creation mode");
+	insist(conf.port > 0, false, "invalid port");
 
 	int on = 1;
 
@@ -197,7 +201,7 @@ Server::Server(const std::string &port, const std::string &pass) : running(true)
 
 	addr.sin_family = AF_INET;
 	addr.sin_addr.s_addr = INADDR_ANY;
-	addr.sin_port = htons(to_number<int>(conf.port));
+	addr.sin_port = htons(conf.port);
 
 	insist(server_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP), -1, "socket failed");
 	insist(setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(int)), -1, "setsockopt failed");
@@ -394,16 +398,17 @@ void Server::JOIN(int fd, User *user, std::vector<std::string> &args)
 	{
 		std::string channel_key = keys.size() > i ? keys[i] : "";
 
-		bool will_become_operator_in_the_near_future = false;
+		bool is_op = false;
 
-		if (channels.find(params[i]) == channels.end()
+		if (conf.channel_creation == 1 
+				&& channels.find(params[i]) == channels.end()
 				&& params[i].length() >= 2
 				&& params[i][0] == '#'
 				&& verify_string(params[i], CHANNEL) && params[i].length() <= 50
 				&& verify_string(channel_key, KEY) && channel_key.length() <= 23
 			) {
 			create_channel(params[i], channel_key, "");
-			will_become_operator_in_the_near_future = true;
+			is_op = true;
 		}
 
 		if (channels.find(params[i]) != channels.end())
@@ -419,7 +424,7 @@ void Server::JOIN(int fd, User *user, std::vector<std::string> &args)
 					else
 					{
 						channel.remove_invite(user);
-						if (will_become_operator_in_the_near_future)
+						if (is_op)
 							channel.add_operator(user);
 						broadcast_message(channel, ":" + user->get_hostmask(user->get_nick()) + " JOIN :" + params[i]);
 						send_message(fd, ":" + conf.name + " " + c(RPL_TOPIC) + " " + user->get_nick() + " " + params[i] + " :" + channel.get_topic());

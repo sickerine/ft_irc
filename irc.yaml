@@ -1,7 +1,5 @@
 # You can have fun with these
 server_name: globalhost.fdsfd-sfds
-server_password: a
-server_port: 6900
 operator_username: operator
 operator_password: password
 
@@ -19,6 +17,7 @@ bot.nickname: eightball
 bot.username: 8ball
 bot.realname: Magic Eight Ball
 
+channel_creation: 1
 
 channel:
   - name: global

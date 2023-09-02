@@ -37,7 +37,7 @@ private:
 
 	struct
 	{
-		std::string port;
+		int port;
 		std::string name;
 		std::string password;
 		std::string operator_username;
@@ -49,6 +49,7 @@ private:
 		size_t max_nickname_length;
 		size_t max_server_name_length;
 		size_t max_channel_name_length;
+		int channel_creation;
 
 		struct
 		{
