@@ -1,23 +1,22 @@
-# You can have fun with these
-server_name: globalhost.fdsfd-sfds
-operator_username: operator
-operator_password: password
-
-activity_timeout: 3000
-ping_timeout: 30
-
-# Don't touch idiot you will break the world
+################Don't touch idiot you will break the world################
 max_message_length: 512
 max_nickname_length: 9
 max_server_name_length: 63
 max_channel_name_length: 50
 bot.fd: -69
+channel_creation: 0
+##########################################################################
+
+server_name: PregoNetwork
+operator_username: kami
+operator_password: p@$Sw0rd
+
+activity_timeout: 3000
+ping_timeout: 30
 
 bot.nickname: eightball
 bot.username: 8ball
 bot.realname: Magic Eight Ball
-
-channel_creation: 0
 
 channel:
   - name: global
@@ -29,6 +28,7 @@ channel:
   - key: abcdef
   - topic: SFW
 
+motd:
 motd:  ██▓███   ██▀███  ▓█████   ▄████  ▒█████  
 motd: ▓██░  ██▒▓██ ▒ ██▒▓█   ▀  ██▒ ▀█▒▒██▒  ██▒
 motd: ▓██░ ██▓▒▓██ ░▄█ ▒▒███   ▒██░▄▄▄░▒██░  ██▒
@@ -38,11 +38,4 @@ motd: ▒▓▒░ ░  ░░ ▒▓ ░▒▓░░░ ▒░ ░ ░▒   ▒
 motd: ░▒ ░       ░▒ ░ ▒░ ░ ░  ░  ░   ░   ░ ▒ ▒░ 
 motd: ░░         ░░   ░    ░   ░ ░   ░ ░ ░ ░ ▒  
 motd:             ░        ░  ░      ░     ░ ░  
-                                       
-
-# TO DO
-# - Verify all CHECK_ARGS
-# - Split bonus and mandatory
-# - CHANNELS ARE BEUNG AMDE!!!!1
-
-
+motd:
