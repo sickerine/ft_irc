@@ -84,25 +84,3 @@ std::string join(const std::string arr[], size_t size, const std::string& separa
     }
     return result;
 }
-
-bool verify_string(const std::string &str, int modes)
-{
-	std::string allowedset;
-	if (modes & LETTER)
-		allowedset += "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
-	if (modes & SPACE)
-		allowedset += " ";
-	if (modes & DIGIT)
-		allowedset += "0123456789";
-	if (modes & SPECIAL)
-		allowedset += "[]\\`_^{|}";
-	if (modes & DASH)
-		allowedset += "-";
-	if (modes & USERNAME)
-		return str.find_first_of("\r\n @") == std::string::npos;
-	if (modes & CHANNEL)
-		return str.find_first_of("\a\r\n ,:") == std::string::npos;
-	if (modes & KEY)
-		return str.find_first_of("\r\n\f\t\v ") == std::string::npos;
-	return str.find_first_not_of(allowedset) == std::string::npos;
-}

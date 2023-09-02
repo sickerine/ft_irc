@@ -101,6 +101,28 @@ bool Server::load_config(const std::string &filename)
 	return true;
 }
 
+bool Server::verify_string(const std::string &str, int modes)
+{
+	std::string allowedset;
+	if (modes & LETTER)
+		allowedset += "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+	if (modes & SPACE)
+		allowedset += " ";
+	if (modes & DIGIT)
+		allowedset += "0123456789";
+	if (modes & SPECIAL)
+		allowedset += "[]\\`_^{|}";
+	if (modes & DASH)
+		allowedset += "-";
+	if (modes & USERNAME)
+		return str.find_first_of("\r\n @") == std::string::npos;
+	if (modes & CHANNEL)
+		return str.find_first_of("\a\r\n ,:") == std::string::npos;
+	if (modes & KEY)
+		return str.find_first_of("\r\n\f\t\v ") == std::string::npos;
+	return str.find_first_not_of(allowedset) == std::string::npos;
+}
+
 bool Server::verify_nickname(const std::string &nickname)
 {
 	std::string nickname_first = nickname.substr(0, 1);
@@ -383,7 +405,7 @@ void Server::JOIN(int fd, User *user, std::vector<std::string> &args)
 			create_channel(params[i], channel_key, "");
 			will_become_operator_in_the_near_future = true;
 		}
-		
+
 		if (channels.find(params[i]) != channels.end())
 		{
 			Channel &channel = channels[params[i]];
@@ -1116,7 +1138,7 @@ void Server::bot_response(std::string message)
 		"Cannot predict now", "Concentrate and ask again",
 		"Don't count on it", "My reply is no", "My sources say no",
 		"Outlook not so good", "Very doubtful"};
-	
+
 	if (args.size() < 3)
 		return;
 

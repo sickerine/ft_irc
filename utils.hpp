@@ -30,15 +30,6 @@ std::string join(T begin, T end, std::string delim)
 	return joined;
 }
 
-std::string join(const std::string arr[], size_t size, const std::string& separator);
-#define JN(...) join((const std::string[]){__VA_ARGS__}, sizeof((const std::string[]){__VA_ARGS__})/sizeof(std::string), " ")
-
-std::string escape(const std::string &str);
-
-std::vector<std::string> split(const std::string &str, char delim, bool trim = false);
-
-std::string c(int code);
-
 template <typename T>
 std::string to_string(T v)
 {
@@ -68,17 +59,11 @@ T to_number_safe(const std::string &str)
 	}
 }
 
+std::string c(int code);
+std::string escape(const std::string &str);
 std::string trimstr(const std::string &str);
 
-bool verify_string(const std::string &str, int modes);
+std::string join(const std::string arr[], size_t size, const std::string& separator);
+#define JN(...) join((const std::string[]){__VA_ARGS__}, sizeof((const std::string[]){__VA_ARGS__})/sizeof(std::string), " ")
 
-enum {
-	LETTER = 1 << 0,
-	SPECIAL = 1 << 1,
-	DIGIT = 1 << 2,
-	DASH = 1 << 3,
-	USERNAME = 1 << 4,
-	CHANNEL = 1 << 5,
-	KEY = 1 << 6,
-	SPACE = 1 << 7,
-};
+std::vector<std::string> split(const std::string &str, char delim, bool trim = false);
