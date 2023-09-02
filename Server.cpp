@@ -997,6 +997,7 @@ void Server::terminate_connection(int fd)
 	broadcast_user_channels(fd, ":" + users[fd]->get_hostmask(users[fd]->get_nick()) + " QUIT :Client closed connection", users[fd]);
 	for (std::map<std::string, Channel>::iterator it = channels.begin(); it != channels.end(); ++it)
 		it->second.remove_user(fd);
+	delete users[fd];
 	users.erase(fd);
 	for (std::vector<pollfd>::iterator it = pfds.begin(); it != pfds.end(); ++it)
 	{
