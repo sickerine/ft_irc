@@ -263,6 +263,8 @@ void Server::accept_connections()
 		users[new_fd] = new User();
 		users[new_fd]->set_fd(new_fd);
 		users[new_fd]->set_host(addr);
+		if (conf.password.empty())
+			users[new_fd]->set_auth(true);
 		std::cout << "Connection accepted on fd " << new_fd << std::endl;
 	}
 }
@@ -1050,7 +1052,11 @@ void Server::channel_operator_privileges_needed(int fd, const std::string &chann
 
 void Server::already_registered(int fd)
 {
-	send_message(fd, ":" + conf.name + " " + c(ERR_ALREADYREGISTRED) + " " + users[fd]->get_nick() + " :You may not reregister");
+	std::string nick = " " + users[fd]->get_nick();
+
+	if (users[fd]->get_nick().empty())
+		nick = "";
+	send_message(fd, ":" + conf.name + " " + c(ERR_ALREADYREGISTRED) + nick + " : You may not reregister");
 }
 
 void Server::unknown_command(int fd, const std::string &command)
@@ -1060,7 +1066,7 @@ void Server::unknown_command(int fd, const std::string &command)
 
 void Server::not_registered(int fd)
 {
-	send_message(fd, ":" + conf.name + " " + c(ERR_NOTREGISTERED) + " " + users[fd]->get_nick() + " :You have not registered");
+	send_message(fd, ":" + conf.name + " " + c(ERR_NOTREGISTERED) + " " + users[fd]->get_nick() + " : You have not registered");
 }
 
 bool Server::is_operator(int fd)
